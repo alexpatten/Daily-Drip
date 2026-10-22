@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <meta name="color-scheme" content="light" />
+    <meta name="supported-color-schemes" content="light" />
+    <title>Reset your Daily Drip password</title>
+    <style>
+      @media (max-width: 520px) {
+        .card { padding: 28px 22px !important; }
+        .title { font-size: 26px !important; }
+      }
+    </style>
+  </head>
+  <body style="margin:0; padding:0; background-color:#F6DCD6;">
+    <!-- Inbox preview text -->
+    <div style="display:none; max-height:0; overflow:hidden; mso-hide:all;">
+      Tap the link to choose a new password for your Daily Drip account.
+    </div>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F6DCD6;">
+      <tr>
+        <td align="center" style="padding:32px 16px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
+            <!-- Brand -->
+            <tr>
+              <td align="center" style="padding:0 0 20px;">
+                <div style="font-size:44px; line-height:1;">&#9749;</div>
+                <div style="font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-size:30px; font-weight:600; color:#4A2E22; padding-top:8px;">
+                  Daily Drip
+                </div>
+              </td>
+            </tr>
+
+            <!-- Card -->
+            <tr>
+              <td class="card" style="background-color:#FFF8F2; border-radius:26px; padding:36px 32px; box-shadow:0 6px 14px rgba(122,84,66,0.12);">
+                <h1 class="title" style="margin:0 0 16px; font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-size:28px; font-weight:600; line-height:1.25; color:#4A2E22;">
+                  Reset your password
+                </h1>
+                <p style="margin:0 0 14px; font-family:'Quicksand', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size:16px; line-height:1.55; color:#4A2E22;">
+                  {{ if .Data.full_name }}Hi {{ .Data.full_name }},{{ else }}Hi there,{{ end }}
+                </p>
+                <p style="margin:0 0 28px; font-family:'Quicksand', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size:16px; line-height:1.55; color:#4A2E22;">
+                  We got a request to reset the password for
+                  <strong style="color:#4A2E22;">{{ .Email }}</strong>. Tap the button below to choose a new one.
+                </p>
+
+                <!-- Button -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 28px;">
+                  <tr>
+                    <td align="center" bgcolor="#4A2E22" style="border-radius:999px;">
+                      <a href="{{ .ConfirmationURL }}" target="_blank"
+                        style="display:inline-block; padding:15px 34px; font-family:'Quicksand', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size:16px; font-weight:700; color:#FFF8F2; text-decoration:none; border-radius:999px;">
+                        Choose a new password
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin:0 0 8px; font-family:'Quicksand', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size:14px; line-height:1.55; color:#7A5442;">
+                  Open this email on the phone where you use Daily Drip. The link works once and
+                  expires in 1 hour.
+                </p>
+                <p style="margin:0 0 8px; font-family:'Quicksand', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size:14px; line-height:1.55; color:#7A5442;">
+                  Button not working? Paste this link into your browser:
+                </p>
+                <p style="margin:0; font-family:'Quicksand', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size:13px; line-height:1.5; word-break:break-all;">
+                  <a href="{{ .ConfirmationURL }}" target="_blank" style="color:#B9773F; text-decoration:underline;">{{ .ConfirmationURL }}</a>
+                </p>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td align="center" style="padding:22px 12px 0;">
+                <p style="margin:0; font-family:'Quicksand', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size:13px; line-height:1.55; color:#7A5442;">
+                  Didn't ask to reset your password? You can ignore this email.
+                  Your password stays the same until you choose a new one.
+                </p>
+                <p style="margin:12px 0 0; font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-style:italic; font-size:14px; color:#C08A5E;">
+                  &hearts; Daily Drip
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

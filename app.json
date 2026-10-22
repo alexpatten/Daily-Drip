@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "Daily Drip",
+    "slug": "daily-drip",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.alexpatten.dailydrip"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#F6DCD6",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.alexpatten.dailydrip"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "output": "single",
+      "backgroundColor": "#F6DCD6",
+      "name": "Daily Drip",
+      "themeColor": "#F6DCD6"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      "expo-sqlite",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#F6DCD6"
+        }
+      ]
+    ],
+    "scheme": "dailydrip",
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
