@@ -157,14 +157,16 @@ max_indexes = 5
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
-site_url = "dailydrip://"
+site_url = "https://alexpatten.com/daily-drip/auth-callback/"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
 # Email links redirect back into the app: the dailydrip:// scheme for builds, Expo Go on the local
-# network and the web dev server for development.
+# network and the web dev server for development. Anything else falls back to site_url, a page on
+# alexpatten.com that forwards the link into the app.
 additional_redirect_urls = [
   "dailydrip://**",
+  "https://alexpatten.com/daily-drip/**",
   "exp://127.0.0.1:8081/**",
   "exp://192.168.*.*:8081/**",
   "http://localhost:8081/**",
