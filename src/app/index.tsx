@@ -15,7 +15,7 @@ import { QuestionCard } from '@/components/QuestionCard';
 import { Screen } from '@/components/Screen';
 import { displayName, signOut, useAuth } from '@/lib/auth';
 import { formatPretty } from '@/lib/dates';
-import { currentStreak, loadAnswers, saveAnswer, type AnswerRecord, type Answers } from '@/lib/progress';
+import { currentStreak, useAnswers, type AnswerRecord } from '@/lib/progress';
 import { getCurrentQuestion, type DailyQuestion } from '@/lib/questions';
 import { colors, fonts, radius, shadow } from '@/theme';
 
@@ -38,7 +38,7 @@ export default function TodayScreen() {
   const { width } = useWindowDimensions();
   const { session } = useAuth();
   const [brew, setBrew] = useState<Brew | null>(null);
-  const [answers, setAnswers] = useState<Answers>(() => loadAnswers());
+  const { answers, save, reload } = useAnswers();
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
@@ -53,14 +53,14 @@ export default function TodayScreen() {
     // The question turns over at midnight Eastern; pick up the new one on return.
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
-      setAnswers(loadAnswers());
+      reload();
       refresh();
     });
     return () => {
       active = false;
       sub.remove();
     };
-  }, []);
+  }, [reload]);
 
   function retry() {
     setBrew(null);
@@ -78,7 +78,7 @@ export default function TodayScreen() {
   const today = question?.question_date ?? null;
 
   function handleAnswer(record: AnswerRecord) {
-    if (today) setAnswers(saveAnswer(today, record));
+    if (today) save(today, record);
   }
 
   const streak = today ? currentStreak(answers, today) : null;

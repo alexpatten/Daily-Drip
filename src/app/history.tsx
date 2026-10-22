@@ -6,7 +6,7 @@ import { Button } from '@/components/Button';
 import { QuestionCard } from '@/components/QuestionCard';
 import { Screen } from '@/components/Screen';
 import { formatShort } from '@/lib/dates';
-import { loadAnswers, saveAnswer, totals, type AnswerRecord, type Answers } from '@/lib/progress';
+import { totals, useAnswers, type AnswerRecord } from '@/lib/progress';
 import {
   getCurrentQuestionDate,
   getPastQuestions,
@@ -33,7 +33,7 @@ async function fetchPast(): Promise<Past> {
 
 export default function HistoryScreen() {
   const [past, setPast] = useState<Past>({ questions: null, hasMore: false, error: null });
-  const [answers, setAnswers] = useState<Answers>(() => loadAnswers());
+  const { answers, save } = useAnswers();
   const [open, setOpen] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -76,7 +76,7 @@ export default function HistoryScreen() {
 
   // Answering a past question is catching up: it's scored, but doesn't build the streak.
   function handleAnswer(date: string, record: AnswerRecord) {
-    setAnswers(saveAnswer(date, { ...record, catchUp: true }));
+    save(date, { ...record, catchUp: true });
   }
 
   const { answered, correct } = totals(answers);
