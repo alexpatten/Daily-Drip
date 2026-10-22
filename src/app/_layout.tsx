@@ -32,7 +32,9 @@ export default function RootLayout() {
     <AuthProvider>
       <SafeAreaProvider>
         <StatusBar style="dark" />
-        <RootNavigator fontsReady={loaded || !!error} />
+        {/* On web there's no splash screen to hide behind, and waiting for fonts on a slow phone
+            connection means a blank page. The browser swaps the fonts in when they arrive. */}
+        <RootNavigator fontsReady={loaded || !!error || process.env.EXPO_OS === 'web'} />
       </SafeAreaProvider>
     </AuthProvider>
   );
