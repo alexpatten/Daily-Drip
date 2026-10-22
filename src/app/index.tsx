@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Link } from 'expo-router';
 
-import { PetalShower, Twirl } from '@/components/Celebration';
+import { Celebration } from '@/components/Celebration';
 import { LatteHearts } from '@/components/LatteHearts';
 import { QuestionCard } from '@/components/QuestionCard';
 import { Screen } from '@/components/Screen';
@@ -105,9 +105,7 @@ export default function TodayScreen() {
         </View>
 
         <View style={styles.hero}>
-          <Twirl trigger={cheers}>
-            <LatteHearts size={artSize} />
-          </Twirl>
+          <LatteHearts size={artSize} />
           <Text style={styles.tagline}>one Praxis SLP question, freshly brewed every day</Text>
         </View>
 
@@ -186,7 +184,7 @@ export default function TodayScreen() {
           </View>
         )}
       </Screen>
-      {cheers > 0 && <PetalShower key={cheers} />}
+      {cheers > 0 && <Celebration key={cheers} />}
     </View>
   );
 }

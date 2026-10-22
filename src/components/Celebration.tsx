@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
-import { colors } from '@/theme';
+import { colors, shadow } from '@/theme';
+import { LatteHearts } from './LatteHearts';
 
 const useNativeDriver = Platform.OS !== 'web';
 
@@ -20,40 +21,6 @@ async function motionAllowed() {
   } catch {
     return true;
   }
-}
-
-// Spins its children a full turn (with a little pop) each time `trigger` goes up.
-export function Twirl({ trigger, children }: { trigger: number; children: ReactNode }) {
-  const [spin] = useState(() => new Animated.Value(0));
-
-  useEffect(() => {
-    if (!trigger) return;
-    let cancelled = false;
-    let anim: Animated.CompositeAnimation | undefined;
-    motionAllowed().then((ok) => {
-      if (!ok || cancelled) return;
-      spin.setValue(0);
-      anim = Animated.timing(spin, {
-        toValue: 1,
-        duration: 1100,
-        easing: Easing.out(Easing.back(1.7)),
-        useNativeDriver,
-      });
-      anim.start();
-    });
-    return () => {
-      cancelled = true;
-      anim?.stop();
-    };
-  }, [trigger, spin]);
-
-  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
-  const scale = spin.interpolate({
-    inputRange: [0, 0.45, 1],
-    outputRange: [1, 1.14, 1],
-    extrapolate: 'clamp',
-  });
-  return <Animated.View style={{ transform: [{ rotate }, { scale }] }}>{children}</Animated.View>;
 }
 
 const SHAPES = {
@@ -135,26 +102,88 @@ function FallingPetal({ petal: p, width, height }: { petal: Petal; width: number
   );
 }
 
-// A one-shot shower of petals over the whole screen. Remount (new key) to replay.
-export function PetalShower() {
+type Cup = { pop: Animated.Value; spin: Animated.Value; out: Animated.Value };
+
+// Pops in with a bounce, twirls a full turn, then floats up and fades.
+function cupAnimation(c: Cup) {
+  return Animated.sequence([
+    Animated.parallel([
+      Animated.spring(c.pop, { toValue: 1, friction: 5, tension: 110, useNativeDriver }),
+      Animated.sequence([
+        Animated.delay(180),
+        Animated.timing(c.spin, {
+          toValue: 1,
+          duration: 1100,
+          easing: Easing.out(Easing.back(1.7)),
+          useNativeDriver,
+        }),
+      ]),
+    ]),
+    Animated.delay(450),
+    Animated.timing(c.out, { toValue: 1, duration: 450, easing: Easing.in(Easing.quad), useNativeDriver }),
+  ]);
+}
+
+function SpinningCup({ cup: c, size }: { cup: Cup; size: number }) {
+  const fadeIn = c.pop.interpolate({ inputRange: [0, 0.4], outputRange: [0, 1], extrapolate: 'clamp' });
+  const fadeOut = c.out.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
+  const popScale = c.pop.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] });
+  const shrink = c.out.interpolate({ inputRange: [0, 1], outputRange: [1, 0.8] });
+  const translateY = c.out.interpolate({ inputRange: [0, 1], outputRange: [0, -36] });
+  const rotate = c.spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  const halo = size * 1.25;
+
+  return (
+    <Animated.View
+      style={[
+        styles.halo,
+        {
+          width: halo,
+          height: halo,
+          borderRadius: halo / 2,
+          opacity: Animated.multiply(fadeIn, fadeOut),
+          transform: [{ translateY }, { scale: Animated.multiply(popScale, shrink) }],
+        },
+      ]}
+    >
+      <Animated.View style={{ transform: [{ rotate }] }}>
+        <LatteHearts size={size} />
+      </Animated.View>
+    </Animated.View>
+  );
+}
+
+type Shower = { petals: Petal[]; cup: Cup };
+
+function makeShower(): Shower {
+  return {
+    petals: makePetals(),
+    cup: { pop: new Animated.Value(0), spin: new Animated.Value(0), out: new Animated.Value(0) },
+  };
+}
+
+// A one-shot celebration over the whole screen, so it's seen wherever the
+// person has scrolled to. Remount (new key) to replay.
+export function Celebration() {
   const { width, height } = useWindowDimensions();
-  const [petals, setPetals] = useState<Petal[] | null>(null);
+  const [shower, setShower] = useState<Shower | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     motionAllowed().then((ok) => {
-      if (ok && !cancelled) setPetals(makePetals());
+      if (ok && !cancelled) setShower(makeShower());
     });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // Start once the petals are mounted so the native driver has views to drive.
+  // Start once everything is mounted so the native driver has views to drive.
   useEffect(() => {
-    if (!petals) return;
-    const anim = Animated.parallel(
-      petals.map((p) =>
+    if (!shower) return;
+    const anim = Animated.parallel([
+      cupAnimation(shower.cup),
+      ...shower.petals.map((p) =>
         Animated.timing(p.progress, {
           toValue: 1,
           duration: p.duration,
@@ -163,15 +192,16 @@ export function PetalShower() {
           useNativeDriver,
         }),
       ),
-    );
-    anim.start(({ finished }) => finished && setPetals(null));
+    ]);
+    anim.start(({ finished }) => finished && setShower(null));
     return () => anim.stop();
-  }, [petals]);
+  }, [shower]);
 
-  if (!petals) return null;
+  if (!shower) return null;
   return (
     <View style={styles.overlay} aria-hidden>
-      {petals.map((p, i) => (
+      <SpinningCup cup={shower.cup} size={Math.min(width * 0.42, 170)} />
+      {shower.petals.map((p, i) => (
         <FallingPetal key={i} petal={p} width={width} height={height} />
       ))}
     </View>
@@ -179,6 +209,16 @@ export function PetalShower() {
 }
 
 const styles = StyleSheet.create({
-  overlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, pointerEvents: 'none' },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    pointerEvents: 'none',
+  },
+  halo: { backgroundColor: colors.cream, alignItems: 'center', justifyContent: 'center', ...shadow },
   petal: { position: 'absolute', top: 0 },
 });
