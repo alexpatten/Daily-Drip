@@ -50,6 +50,8 @@ npx expo start        # then press i (iOS), a (Android), or w (web)
 
 `.env` holds the Supabase URL and publishable key, which are safe to ship in the app.
 
+The web build is hosted at https://dailydrip.alexpatten.com. Pushing to `main` redeploys it on ap-server-01 within a minute or two; see [`deploy/README.md`](deploy/README.md).
+
 ## Project layout
 
 ```
