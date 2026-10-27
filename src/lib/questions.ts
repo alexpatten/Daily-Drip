@@ -1,3 +1,4 @@
+import type { QuestionCounts } from './awards';
 import type { ExamSlug } from './exams';
 import { supabase } from './supabase';
 
@@ -36,8 +37,8 @@ export function slotKey(q: DailyQuestion): string {
   return `${q.exam}:${q.question_date}:${q.position}`;
 }
 
-// Today's questions for an exam, `count` of them. Praxis questions are brewed at
-// midnight Eastern by a scheduled job; Security+ rotates through a fixed bank.
+// Today's questions for an exam, `count` of them, from its fixed bank in rotation. The
+// day turns over at midnight Eastern.
 export async function getTodaysQuestions(exam: ExamSlug, count: number): Promise<DailyQuestion[]> {
   const { data, error } = await supabase
     .rpc('todays_questions', { p_exam: exam, p_count: count })
@@ -80,4 +81,23 @@ export async function getPastQuestions(
     .returns<DailyQuestion[]>();
   if (error) throw error;
   return data;
+}
+
+// How many questions each exam has, for the "every question" awards. Banks only change
+// with a migration, but the cached counts are still refreshed after an hour.
+const COUNTS_MAX_AGE_MS = 60 * 60 * 1000;
+let counts: { value: QuestionCounts; at: number } | null = null;
+
+export function cachedQuestionCounts(): QuestionCounts | null {
+  return counts?.value ?? null;
+}
+
+export async function getQuestionCounts(): Promise<QuestionCounts> {
+  if (counts && Date.now() - counts.at < COUNTS_MAX_AGE_MS) return counts.value;
+  const { data, error } = await supabase.rpc('question_counts');
+  if (error) throw error;
+  const rows = (data ?? []) as { exam: ExamSlug; total: number }[];
+  const value = Object.fromEntries(rows.map((row) => [row.exam, row.total])) as QuestionCounts;
+  counts = { value, at: Date.now() };
+  return value;
 }

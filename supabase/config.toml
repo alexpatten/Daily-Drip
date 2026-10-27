@@ -432,9 +432,3 @@ enabled = true
 # formatted with uppercase keywords, indent 2, max width 180, trailing commas,
 # and column/key alignment. Set to "null" to emit raw, unformatted SQL.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":180,\"commaStyle\":\"trailing\"}"
-
-# Publishable keys (sb_publishable_...) are not JWTs, so the gateway JWT check is off.
-# The function only ever generates questions for dates within a day of today, and
-# each date is generated at most once, so it is safe to call without auth.
-[functions.daily-question]
-verify_jwt = false

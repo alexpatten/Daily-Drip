@@ -13,7 +13,7 @@ export const EXAMS: Exam[] = [
     slug: 'praxis-slp',
     name: 'Praxis Speech-Language Pathology',
     shortName: 'Praxis SLP',
-    blurb: 'Fresh questions brewed every midnight for the Praxis SLP (5331).',
+    blurb: '365 practice questions across every Praxis SLP (5331) content area.',
   },
   {
     slug: 'security-plus',

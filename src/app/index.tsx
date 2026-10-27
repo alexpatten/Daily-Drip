@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Link } from 'expo-router';
 
-import { Celebration } from '@/components/Celebration';
+import { useCelebrations } from '@/components/Celebration';
 import { LatteHearts } from '@/components/LatteHearts';
 import { QuestionCard } from '@/components/QuestionCard';
 import { Screen } from '@/components/Screen';
@@ -93,10 +93,14 @@ export default function TodayScreen() {
   const { session } = useAuth();
   const { exam, perDay } = useSettings();
   const [brew, setBrew] = useState<Brew | null>(null);
-  const { progress, save, reload, retriesFor } = useProgress();
+  const { progress, save, reload, retriesFor, syncAwards } = useProgress();
   const [refreshing, setRefreshing] = useState(false);
-  // Bumped on each correct answer to replay the celebration.
-  const [cheers, setCheers] = useState(0);
+  const { celebration, celebrate } = useCelebrations();
+
+  // Answers from before awards existed still count.
+  useEffect(() => {
+    syncAwards();
+  }, [syncAwards]);
 
   const load = useCallback(async () => {
     const next = await fetchBrew(exam, perDay, retriesFor);
@@ -142,8 +146,8 @@ export default function TodayScreen() {
   function handleAnswer(question: DailyQuestion, record: AnswerRecord) {
     // Answering the last of today's questions counts the day toward the streak.
     const finishesDay = questions!.every((q) => q.id === question.id || answerFor(progress, q));
-    save(question, record, finishesDay ? question.question_date : null);
-    if (record.correct) setCheers((n) => n + 1);
+    const earned = save(question, record, finishesDay ? questions : null);
+    if (record.correct || earned.length > 0) celebrate(earned);
   }
 
   const streak = today ? currentStreak(progress, today) : null;
@@ -208,7 +212,7 @@ export default function TodayScreen() {
           <View style={styles.statusCard}>
             <Text style={styles.statusTitle}>Still brewing</Text>
             <Text style={styles.statusText}>
-              {"The first questions are on their way. They're brewed fresh at midnight Eastern."}
+              {"Today's questions are on their way. Pull down to check again in a moment."}
             </Text>
           </View>
         ) : (
@@ -229,6 +233,14 @@ export default function TodayScreen() {
               style={({ pressed }) => [styles.pillLink, pressed && styles.pressed]}
             >
               <Text style={styles.pillText}>Past brews  →</Text>
+            </Pressable>
+          </Link>
+          <Link href="/awards" asChild>
+            <Pressable
+              accessibilityRole="link"
+              style={({ pressed }) => [styles.pillLink, pressed && styles.pressed]}
+            >
+              <Text style={styles.pillText}>Awards  →</Text>
             </Pressable>
           </Link>
           <Link href="/settings" asChild>
@@ -271,7 +283,7 @@ export default function TodayScreen() {
           </View>
         )}
       </Screen>
-      {cheers > 0 && <Celebration key={cheers} />}
+      {celebration}
     </View>
   );
 }

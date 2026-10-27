@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { router } from 'expo-router';
 
 import { Button } from '@/components/Button';
+import { useCelebrations } from '@/components/Celebration';
 import { QuestionCard } from '@/components/QuestionCard';
 import { Screen } from '@/components/Screen';
 import { formatShort } from '@/lib/dates';
@@ -38,6 +39,7 @@ export default function HistoryScreen() {
   const [open, setOpen] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const { celebration, celebrate } = useCelebrations();
 
   useEffect(() => {
     let active = true;
@@ -76,7 +78,8 @@ export default function HistoryScreen() {
 
   // Answering a past question is catching up: it's scored, but doesn't build the streak.
   function handleAnswer(question: DailyQuestion, record: AnswerRecord) {
-    save(question, { ...record, catchUp: true });
+    const earned = save(question, { ...record, catchUp: true });
+    if (earned.length > 0) celebrate(earned);
   }
 
   const { answered, correct } = totals(progress, exam);
@@ -84,79 +87,83 @@ export default function HistoryScreen() {
   const hasMore = current?.hasMore ?? false;
 
   return (
-    <Screen refreshing={refreshing} onRefresh={onRefresh}>
-      <Pressable
-        onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
-        accessibilityRole="button"
-        accessibilityLabel="Back to today"
-        hitSlop={8}
-        style={({ pressed }) => [styles.back, pressed && styles.pressed]}
-      >
-        <Text style={styles.backText}>←  Today</Text>
-      </Pressable>
+    <View style={styles.root}>
+      <Screen refreshing={refreshing} onRefresh={onRefresh}>
+        <Pressable
+          onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+          accessibilityRole="button"
+          accessibilityLabel="Back to today"
+          hitSlop={8}
+          style={({ pressed }) => [styles.back, pressed && styles.pressed]}
+        >
+          <Text style={styles.backText}>←  Today</Text>
+        </Pressable>
 
-      <View>
-        <Text style={styles.title}>Past brews</Text>
-        <Text style={styles.subtitle}>
-          {`${examFor(exam).shortName}  ·  `}
-          {answered === 0
-            ? 'Catch up on questions you missed.'
-            : `${correct} of ${answered} answered correctly`}
-        </Text>
-      </View>
+        <View>
+          <Text style={styles.title}>Past brews</Text>
+          <Text style={styles.subtitle}>
+            {`${examFor(exam).shortName}  ·  `}
+            {answered === 0
+              ? 'Catch up on questions you missed.'
+              : `${correct} of ${answered} answered correctly`}
+          </Text>
+        </View>
 
-      {error && <Text style={styles.empty}>{error}</Text>}
-      {!questions && !error && <ActivityIndicator color={colors.mocha} />}
-      {questions?.length === 0 && (
-        <Text style={styles.empty}>No past questions yet. Your first cup is today ♡</Text>
-      )}
+        {error && <Text style={styles.empty}>{error}</Text>}
+        {!questions && !error && <ActivityIndicator color={colors.mocha} />}
+        {questions?.length === 0 && (
+          <Text style={styles.empty}>No past questions yet. Your first cup is today ♡</Text>
+        )}
 
-      {questions?.map((q) => {
-        const answer = answerFor(progress, q);
-        const slot = slotKey(q);
-        const isOpen = open === slot;
-        return (
-          <View key={slot} style={styles.item}>
-            <Pressable
-              onPress={() => setOpen(isOpen ? null : slot)}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: isOpen }}
-              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-            >
-              <View style={styles.dateBadge}>
-                <Text style={styles.dateText}>{formatShort(q.question_date)}</Text>
-              </View>
-              <View style={styles.rowText}>
-                <Text style={styles.rowCategory} numberOfLines={1}>
-                  {q.category?.name ?? examFor(q.exam).shortName}
-                </Text>
-                {!isOpen && (
-                  <Text style={styles.rowQuestion} numberOfLines={2}>
-                    {q.question}
+        {questions?.map((q) => {
+          const answer = answerFor(progress, q);
+          const slot = slotKey(q);
+          const isOpen = open === slot;
+          return (
+            <View key={slot} style={styles.item}>
+              <Pressable
+                onPress={() => setOpen(isOpen ? null : slot)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: isOpen }}
+                style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+              >
+                <View style={styles.dateBadge}>
+                  <Text style={styles.dateText}>{formatShort(q.question_date)}</Text>
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={styles.rowCategory} numberOfLines={1}>
+                    {q.category?.name ?? examFor(q.exam).shortName}
                   </Text>
-                )}
-              </View>
-              <Text style={styles.status}>{answer ? (answer.correct ? '♥' : '♡') : '•'}</Text>
-            </Pressable>
-            {isOpen && (
-              <QuestionCard
-                question={q}
-                answer={answer}
-                onAnswer={(record) => handleAnswer(q, record)}
-              />
-            )}
-          </View>
-        );
-      })}
+                  {!isOpen && (
+                    <Text style={styles.rowQuestion} numberOfLines={2}>
+                      {q.question}
+                    </Text>
+                  )}
+                </View>
+                <Text style={styles.status}>{answer ? (answer.correct ? '♥' : '♡') : '•'}</Text>
+              </Pressable>
+              {isOpen && (
+                <QuestionCard
+                  question={q}
+                  answer={answer}
+                  onAnswer={(record) => handleAnswer(q, record)}
+                />
+              )}
+            </View>
+          );
+        })}
 
-      {hasMore && (
-        <Button label="Show older brews" variant="secondary" loading={loadingMore} onPress={loadMore} />
-      )}
-    </Screen>
+        {hasMore && (
+          <Button label="Show older brews" variant="secondary" loading={loadingMore} onPress={loadMore} />
+        )}
+      </Screen>
+      {celebration}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   back: {
     alignSelf: 'flex-start',
     minHeight: 44,

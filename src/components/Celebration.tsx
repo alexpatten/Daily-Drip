@@ -1,16 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
   Easing,
   Platform,
   StyleSheet,
+  Text,
   useWindowDimensions,
   View,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
-import { colors, shadow } from '@/theme';
+import type { Award } from '@/lib/awards';
+import { colors, fonts, radius, shadow } from '@/theme';
+import { CoffeeBadge } from './CoffeeBadge';
 import { LatteHearts } from './LatteHearts';
 
 const useNativeDriver = Platform.OS !== 'web';
@@ -124,7 +127,7 @@ function cupAnimation(c: Cup) {
   ]);
 }
 
-function SpinningCup({ cup: c, size }: { cup: Cup; size: number }) {
+function SpinningCup({ cup: c, size, award }: { cup: Cup; size: number; award?: Award }) {
   const fadeIn = c.pop.interpolate({ inputRange: [0, 0.4], outputRange: [0, 1], extrapolate: 'clamp' });
   const fadeOut = c.out.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
   const popScale = c.pop.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] });
@@ -136,19 +139,24 @@ function SpinningCup({ cup: c, size }: { cup: Cup; size: number }) {
   return (
     <Animated.View
       style={[
-        styles.halo,
+        styles.cup,
         {
-          width: halo,
-          height: halo,
-          borderRadius: halo / 2,
           opacity: Animated.multiply(fadeIn, fadeOut),
           transform: [{ translateY }, { scale: Animated.multiply(popScale, shrink) }],
         },
       ]}
     >
-      <Animated.View style={{ transform: [{ rotate }] }}>
-        <LatteHearts size={size} />
-      </Animated.View>
+      <View style={[styles.halo, { width: halo, height: halo, borderRadius: halo / 2 }]}>
+        <Animated.View style={{ transform: [{ rotate }] }}>
+          {award ? <CoffeeBadge award={award.id} size={size} /> : <LatteHearts size={size} />}
+        </Animated.View>
+      </View>
+      {award && (
+        <View style={styles.caption}>
+          <Text style={styles.captionLabel}>Award unlocked</Text>
+          <Text style={styles.captionName}>{award.name}</Text>
+        </View>
+      )}
     </Animated.View>
   );
 }
@@ -162,21 +170,35 @@ function makeShower(): Shower {
   };
 }
 
+type Props = {
+  // An award to show off in place of the logo cup.
+  award?: Award;
+  onDone?: () => void;
+};
+
 // A one-shot celebration over the whole screen, so it's seen wherever the
 // person has scrolled to. Remount (new key) to replay.
-export function Celebration() {
+export function Celebration({ award, onDone }: Props) {
   const { width, height } = useWindowDimensions();
   const [shower, setShower] = useState<Shower | null>(null);
+  const done = useRef(onDone);
+  useEffect(() => {
+    done.current = onDone;
+  });
 
   useEffect(() => {
     let cancelled = false;
+    if (award) AccessibilityInfo.announceForAccessibility(`Award unlocked: ${award.name}`);
     motionAllowed().then((ok) => {
-      if (ok && !cancelled) setShower(makeShower());
+      if (cancelled) return;
+      if (ok) setShower(makeShower());
+      // Without motion there's nothing to wait for.
+      else setTimeout(() => done.current?.(), award ? 1500 : 0);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [award]);
 
   // Start once everything is mounted so the native driver has views to drive.
   useEffect(() => {
@@ -193,14 +215,18 @@ export function Celebration() {
         }),
       ),
     ]);
-    anim.start(({ finished }) => finished && setShower(null));
+    anim.start(({ finished }) => {
+      if (!finished) return;
+      setShower(null);
+      done.current?.();
+    });
     return () => anim.stop();
   }, [shower]);
 
   if (!shower) return null;
   return (
     <View style={styles.overlay} aria-hidden>
-      <SpinningCup cup={shower.cup} size={Math.min(width * 0.42, 170)} />
+      <SpinningCup cup={shower.cup} size={Math.min(width * 0.42, 170)} award={award} />
       {shower.petals.map((p, i) => (
         <FallingPetal key={i} petal={p} width={width} height={height} />
       ))}
@@ -219,6 +245,42 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     pointerEvents: 'none',
   },
+  cup: { alignItems: 'center', gap: 14 },
   halo: { backgroundColor: colors.cream, alignItems: 'center', justifyContent: 'center', ...shadow },
+  caption: {
+    backgroundColor: colors.cream,
+    borderRadius: radius.pill,
+    paddingVertical: 10,
+    paddingHorizontal: 22,
+    alignItems: 'center',
+    ...shadow,
+  },
+  captionLabel: { fontFamily: fonts.bodyBold, fontSize: 12, color: colors.caramel, textTransform: 'uppercase', letterSpacing: 1 },
+  captionName: { fontFamily: fonts.display, fontSize: 20, color: colors.espresso },
   petal: { position: 'absolute', top: 0 },
 });
+
+type Cheer = { id: number; award?: Award };
+
+/**
+ * Celebrations for a screen: a plain one for a right answer, and one per award earned.
+ * Awards play one after another; a plain cheer just replays the current one.
+ */
+export function useCelebrations() {
+  const [queue, setQueue] = useState<Cheer[]>([]);
+  const nextId = useRef(0);
+
+  const celebrate = useCallback((earned: Award[] = []) => {
+    const added = earned.map((award) => ({ id: ++nextId.current, award }));
+    const plain = { id: ++nextId.current };
+    setQueue((q) => {
+      const awards = [...q.filter((c) => c.award), ...added];
+      return awards.length > 0 ? awards : [plain];
+    });
+  }, []);
+
+  const current = queue[0];
+  const finish = useCallback(() => setQueue((q) => q.slice(1)), []);
+  const celebration = current ? <Celebration key={current.id} award={current.award} onDone={finish} /> : null;
+  return { celebration, celebrate };
+}
