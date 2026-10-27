@@ -1,15 +1,22 @@
-// Generates (at most once per date) the Praxis Speech-Language Pathology question of the day with Claude
-// and stores it in public.daily_questions.
+// Writes the day's Praxis Speech-Language Pathology questions with Claude and stores them in
+// public.daily_questions: a batch of DAILY_COUNT per date, each from a different category.
+// Readers who want N questions a day see the first N. (Security+ questions are a fixed
+// bank in the same table; this function doesn't touch them.)
 //
-// POST {} -> ensure today's question (Eastern time) exists and return it
+// POST {} -> write any of today's (Eastern time) questions that are missing
 //
 // pg_cron calls this at midnight Eastern; the app never does. It only ever brews the
-// current Eastern date, so extra calls can't run up the Claude bill.
+// current Eastern date, and only positions not written yet, so extra calls can't run up
+// the Claude bill. A run that fails partway keeps what it wrote; the next run fills in
+// the rest.
 
 import Anthropic from "npm:@anthropic-ai/sdk@1.1.0";
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
 const MODEL = "claude-opus-5-5";
+const EXAM = "praxis-slp";
+// The most questions a day a reader can choose.
+const DAILY_COUNT = 25;
 const LETTERS = ["A", "B", "C", "D"] as const;
 type Letter = (typeof LETTERS)[number];
 
@@ -35,14 +42,11 @@ type GeneratedQuestion = {
   explanation: string;
 };
 
-const QUESTION_SELECT =
-  "id, question_date, question, choice_a, choice_b, choice_c, choice_d, correct_answer, explanation, " +
-  "category:praxis_categories(name, test_name)";
-
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, secretKey(), {
   auth: { persistSession: false },
 });
-const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
+// The whole batch is requested at once, so allow extra retries for rate limits.
+const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY"), maxRetries: 4 });
 
 function secretKey(): string {
   const keys = Deno.env.get("SUPABASE_SECRET_KEYS");
@@ -57,12 +61,6 @@ function json(body: unknown, status = 200) {
   });
 }
 
-function addDays(date: string, days: number): string {
-  const d = new Date(`${date}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
 // "YYYY-MM-DD" in America/New_York, so the day turns over at midnight Eastern.
 function easternToday(): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -73,62 +71,71 @@ function easternToday(): string {
   }).format(new Date());
 }
 
-async function findQuestion(date: string) {
+// The positions already written for a date and the categories they used.
+async function writtenSoFar(date: string) {
   const { data, error } = await supabase
     .from("daily_questions")
-    .select(QUESTION_SELECT)
-    .eq("question_date", date)
-    .maybeSingle();
+    .select("position, category_id")
+    .eq("exam", EXAM)
+    .eq("question_date", date);
   if (error) throw error;
   return data;
 }
 
-// Least-recently-used rotation: categories never used come first (in sort order),
-// then whichever was used longest ago. Neighbouring days are always excluded, so
-// two days in a row never share a category.
-async function pickCategory(date: string): Promise<Category> {
+// Least-recently-used rotation: categories never used come first (in sort order), then
+// whichever was used longest ago (by date, then position in that day's batch). Categories
+// already in today's batch are skipped, so a day never repeats one.
+async function pickCategories(date: string, usedToday: Set<number>, count: number): Promise<Category[]> {
   const { data: categories, error: catError } = await supabase
     .from("praxis_categories")
     .select("id, slug, name, test_name, focus, sort_order")
+    .eq("exam", EXAM)
     .order("sort_order");
   if (catError) throw catError;
 
   const { data: history, error: histError } = await supabase
     .from("daily_questions")
-    .select("category_id, question_date")
-    .neq("question_date", date)
+    .select("category_id, question_date, position")
+    .eq("exam", EXAM)
+    .lt("question_date", date)
     .order("question_date", { ascending: false })
+    .order("position", { ascending: false })
     .limit(categories.length * 3);
   if (histError) throw histError;
 
-  const neighbours = new Set([addDays(date, -1), addDays(date, 1)]);
-  const blocked = new Set(
-    history.filter((h) => neighbours.has(h.question_date)).map((h) => h.category_id),
-  );
   const lastUsed = new Map<number, string>();
   for (const h of history) {
-    if (!lastUsed.has(h.category_id)) lastUsed.set(h.category_id, h.question_date);
+    if (!lastUsed.has(h.category_id)) {
+      lastUsed.set(h.category_id, `${h.question_date}#${String(h.position).padStart(2, "0")}`);
+    }
   }
 
-  const candidates = categories.filter((c) => !blocked.has(c.id));
+  const candidates = categories.filter((c) => !usedToday.has(c.id));
   candidates.sort((a, b) => {
     const la = lastUsed.get(a.id) ?? "";
     const lb = lastUsed.get(b.id) ?? "";
     if (la !== lb) return la < lb ? -1 : 1;
     return a.sort_order - b.sort_order;
   });
-  return candidates[0];
+  return candidates.slice(0, count);
 }
 
-async function recentQuestions(categoryId: number): Promise<string[]> {
+// Up to 15 of each category's most recent questions, so Claude can avoid repeating them.
+async function recentQuestions(categoryIds: number[]): Promise<Map<number, string[]>> {
   const { data, error } = await supabase
     .from("daily_questions")
-    .select("question")
-    .eq("category_id", categoryId)
+    .select("category_id, question")
+    .in("category_id", categoryIds)
     .order("question_date", { ascending: false })
-    .limit(15);
+    .limit(categoryIds.length * 15);
   if (error) throw error;
-  return data.map((r) => r.question);
+  const byCategory = new Map<number, string[]>();
+  for (const r of data) {
+    const list = byCategory.get(r.category_id) ?? [];
+    if (list.length < 15) list.push(r.question);
+    byCategory.set(r.category_id, list);
+  }
+  return byCategory;
 }
 
 const SYSTEM_PROMPT = `You write practice questions for the Praxis Speech-Language Pathology exam (ETS test 5331), the licensure and ASHA certification exam for speech-language pathologists in the United States. Every question is about speech-language pathology and nothing else.
@@ -210,17 +217,15 @@ async function generateQuestion(category: Category, avoid: string[]): Promise<Ge
   return parsed;
 }
 
-async function ensureQuestion(date: string) {
-  const existing = await findQuestion(date);
-  if (existing) return existing;
+async function writeQuestion(date: string, position: number, category: Category, avoid: string[]) {
+  const q = await generateQuestion(category, avoid);
 
-  const category = await pickCategory(date);
-  const q = await generateQuestion(category, await recentQuestions(category.id));
-
-  // A concurrent request may have inserted this date first; keep whichever won.
+  // A concurrent run may have written this position first; keep whichever won.
   const { error } = await supabase.from("daily_questions").upsert(
     {
+      exam: EXAM,
       question_date: date,
+      position,
       category_id: category.id,
       question: q.question.trim(),
       choice_a: q.choices.A.trim(),
@@ -231,10 +236,29 @@ async function ensureQuestion(date: string) {
       explanation: q.explanation.trim(),
       model: MODEL,
     },
-    { onConflict: "question_date", ignoreDuplicates: true },
+    { onConflict: "exam,question_date,position", ignoreDuplicates: true },
   );
   if (error) throw error;
-  return await findQuestion(date);
+}
+
+// Writes the date's missing positions in parallel. Each question is saved as soon as it's
+// ready, so one failure doesn't lose the rest.
+async function brewDay(date: string) {
+  const written = await writtenSoFar(date);
+  const taken = new Set(written.map((w) => w.position));
+  const missing = Array.from({ length: DAILY_COUNT }, (_, i) => i + 1).filter((p) => !taken.has(p));
+  if (missing.length === 0) return { date, written: 0, failed: 0 };
+
+  const categories = await pickCategories(date, new Set(written.map((w) => w.category_id)), missing.length);
+  const avoid = await recentQuestions(categories.map((c) => c.id));
+  const results = await Promise.allSettled(
+    categories.map((category, i) =>
+      writeQuestion(date, missing[i], category, avoid.get(category.id) ?? []),
+    ),
+  );
+  for (const r of results) if (r.status === "rejected") console.error(r.reason);
+  const failed = results.filter((r) => r.status === "rejected").length;
+  return { date, written: results.length - failed, failed };
 }
 
 Deno.serve(async (req) => {
@@ -242,7 +266,8 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Use POST" }, 405);
 
   try {
-    return json({ question: await ensureQuestion(easternToday()) });
+    const result = await brewDay(easternToday());
+    return json(result, result.failed ? 500 : 200);
   } catch (err) {
     console.error(err);
     if (err instanceof Anthropic.APIError) {

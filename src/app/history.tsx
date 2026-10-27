@@ -3,83 +3,86 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { router } from 'expo-router';
 
 import { Button } from '@/components/Button';
+import { ExamSwitch } from '@/components/ExamSwitch';
 import { QuestionCard } from '@/components/QuestionCard';
 import { Screen } from '@/components/Screen';
 import { formatShort } from '@/lib/dates';
-import { totals, useAnswers, type AnswerRecord } from '@/lib/progress';
-import {
-  getCurrentQuestionDate,
-  getPastQuestions,
-  PAST_PAGE_SIZE,
-  type DailyQuestion,
-} from '@/lib/questions';
+import { examFor, type ExamSlug } from '@/lib/exams';
+import { answerFor, totals, useProgress, type AnswerRecord } from '@/lib/progress';
+import { getPastQuestions, pastPageDays, slotKey, type DailyQuestion } from '@/lib/questions';
+import { useSettings } from '@/lib/settings';
 import { colors, fonts, radius, shadow } from '@/theme';
 
-type Past = { questions: DailyQuestion[] | null; hasMore: boolean; error: string | null };
+// `key` is the exam and count the questions were fetched for.
+type Past = { key: string; questions: DailyQuestion[] | null; hasMore: boolean; error: string | null };
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong.');
 
-// The newest page of questions before today's.
-async function fetchPast(): Promise<Past> {
+// A page of past days' questions before `beforeDate` (default: today), newest first.
+async function fetchPast(exam: ExamSlug, perDay: number, beforeDate: string | null): Promise<Past> {
+  const key = `${exam}:${perDay}`;
+  const days = pastPageDays(perDay);
   try {
-    const today = await getCurrentQuestionDate();
-    if (!today) return { questions: [], hasMore: false, error: null };
-    const page = await getPastQuestions(today);
-    return { questions: page, hasMore: page.length === PAST_PAGE_SIZE, error: null };
+    const page = await getPastQuestions(exam, perDay, beforeDate, days);
+    const pageDays = new Set(page.map((q) => q.question_date)).size;
+    return { key, questions: page, hasMore: pageDays === days, error: null };
   } catch (e) {
-    return { questions: null, hasMore: false, error: errorMessage(e) };
+    return { key, questions: null, hasMore: false, error: errorMessage(e) };
   }
 }
 
 export default function HistoryScreen() {
-  const [past, setPast] = useState<Past>({ questions: null, hasMore: false, error: null });
-  const { answers, save } = useAnswers();
+  const { exam, perDay } = useSettings();
+  const key = `${exam}:${perDay}`;
+  const [past, setPast] = useState<Past | null>(null);
+  const { progress, save } = useProgress();
   const [open, setOpen] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
     let active = true;
-    fetchPast().then((next) => active && setPast(next));
+    fetchPast(exam, perDay, null).then((next) => active && setPast(next));
     return () => {
       active = false;
     };
-  }, []);
+  }, [exam, perDay]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    const next = await fetchPast();
+    const next = await fetchPast(exam, perDay, null);
     // A failed refresh keeps the questions already on screen.
-    setPast((prev) => (next.error && prev.questions ? { ...prev, error: next.error } : next));
+    setPast((prev) =>
+      next.error && prev?.questions && prev.key === next.key ? { ...prev, error: next.error } : next,
+    );
     setRefreshing(false);
-  }, []);
+  }, [exam, perDay]);
 
-  const { questions, hasMore, error } = past;
+  // Until questions for the current settings arrive, show the loading state.
+  const current = past?.key === key ? past : null;
+  const questions = current?.questions ?? null;
 
   async function loadMore() {
     const oldest = questions?.[questions.length - 1]?.question_date;
     if (!oldest) return;
     setLoadingMore(true);
-    try {
-      const page = await getPastQuestions(oldest);
-      setPast((prev) => ({
-        questions: [...(prev.questions ?? []), ...page],
-        hasMore: page.length === PAST_PAGE_SIZE,
-        error: null,
-      }));
-    } catch (e) {
-      setPast((prev) => ({ ...prev, error: errorMessage(e) }));
-    } finally {
-      setLoadingMore(false);
-    }
+    const next = await fetchPast(exam, perDay, oldest);
+    setPast((prev) => {
+      if (prev?.key !== next.key) return prev;
+      if (next.error) return { ...prev, error: next.error };
+      return { ...next, questions: [...(prev.questions ?? []), ...(next.questions ?? [])] };
+    });
+    setLoadingMore(false);
   }
 
   // Answering a past question is catching up: it's scored, but doesn't build the streak.
-  function handleAnswer(date: string, record: AnswerRecord) {
-    save(date, { ...record, catchUp: true });
+  function handleAnswer(question: DailyQuestion, record: AnswerRecord) {
+    save(question, { ...record, catchUp: true });
   }
 
-  const { answered, correct } = totals(answers);
+  const { answered, correct } = totals(progress, exam);
+  const error = current?.error ?? null;
+  const hasMore = current?.hasMore ?? false;
 
   return (
     <Screen refreshing={refreshing} onRefresh={onRefresh}>
@@ -102,6 +105,8 @@ export default function HistoryScreen() {
         </Text>
       </View>
 
+      <ExamSwitch />
+
       {error && <Text style={styles.empty}>{error}</Text>}
       {!questions && !error && <ActivityIndicator color={colors.mocha} />}
       {questions?.length === 0 && (
@@ -109,12 +114,13 @@ export default function HistoryScreen() {
       )}
 
       {questions?.map((q) => {
-        const answer = answers[q.question_date];
-        const isOpen = open === q.question_date;
+        const answer = answerFor(progress, q);
+        const slot = slotKey(q);
+        const isOpen = open === slot;
         return (
-          <View key={q.question_date} style={styles.item}>
+          <View key={slot} style={styles.item}>
             <Pressable
-              onPress={() => setOpen(isOpen ? null : q.question_date)}
+              onPress={() => setOpen(isOpen ? null : slot)}
               accessibilityRole="button"
               accessibilityState={{ expanded: isOpen }}
               style={({ pressed }) => [styles.row, pressed && styles.pressed]}
@@ -124,7 +130,7 @@ export default function HistoryScreen() {
               </View>
               <View style={styles.rowText}>
                 <Text style={styles.rowCategory} numberOfLines={1}>
-                  {q.category?.name ?? 'Praxis SLP'}
+                  {q.category?.name ?? examFor(q.exam).shortName}
                 </Text>
                 {!isOpen && (
                   <Text style={styles.rowQuestion} numberOfLines={2}>
@@ -138,7 +144,7 @@ export default function HistoryScreen() {
               <QuestionCard
                 question={q}
                 answer={answer}
-                onAnswer={(record) => handleAnswer(q.question_date, record)}
+                onAnswer={(record) => handleAnswer(q, record)}
               />
             )}
           </View>

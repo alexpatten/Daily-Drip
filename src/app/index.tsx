@@ -11,49 +11,56 @@ import {
 import { Link } from 'expo-router';
 
 import { Celebration } from '@/components/Celebration';
+import { ExamSwitch } from '@/components/ExamSwitch';
 import { LatteHearts } from '@/components/LatteHearts';
 import { QuestionCard } from '@/components/QuestionCard';
 import { Screen } from '@/components/Screen';
 import { displayName, signOut, useAuth } from '@/lib/auth';
 import { formatPretty } from '@/lib/dates';
-import { currentStreak, useAnswers, type AnswerRecord } from '@/lib/progress';
-import { getCurrentQuestion, type DailyQuestion } from '@/lib/questions';
+import { examFor, type ExamSlug } from '@/lib/exams';
+import { answerFor, currentStreak, useProgress, type AnswerRecord } from '@/lib/progress';
+import { getTodaysQuestions, slotKey, type DailyQuestion } from '@/lib/questions';
+import { useSettings } from '@/lib/settings';
 import { colors, fonts, radius, shadow } from '@/theme';
 
-type Brew = { question: DailyQuestion | null; error: string | null };
+// `key` is the exam and count the questions were fetched for.
+type Brew = { key: string; questions: DailyQuestion[] | null; error: string | null };
 
-async function fetchBrew(): Promise<Brew> {
+async function fetchBrew(exam: ExamSlug, perDay: number): Promise<Brew> {
+  const key = `${exam}:${perDay}`;
   try {
-    return { question: await getCurrentQuestion(), error: null };
+    return { key, questions: await getTodaysQuestions(exam, perDay), error: null };
   } catch (e) {
-    return { question: null, error: e instanceof Error ? e.message : 'Something went wrong.' };
+    return { key, questions: null, error: e instanceof Error ? e.message : 'Something went wrong.' };
   }
 }
 
-// A failed refresh keeps the question already on screen.
+// A failed refresh keeps the questions already on screen.
 function merge(prev: Brew | null, next: Brew): Brew {
-  return next.error && prev?.question ? prev : next;
+  return next.error && prev?.questions && prev.key === next.key ? prev : next;
 }
 
 export default function TodayScreen() {
   const { width } = useWindowDimensions();
   const { session } = useAuth();
+  const { exam, perDay } = useSettings();
   const [brew, setBrew] = useState<Brew | null>(null);
-  const { answers, save, reload } = useAnswers();
+  const { progress, save, reload } = useProgress();
   const [refreshing, setRefreshing] = useState(false);
   // Bumped on each correct answer to replay the celebration.
   const [cheers, setCheers] = useState(0);
 
   const load = useCallback(async () => {
-    const next = await fetchBrew();
+    const next = await fetchBrew(exam, perDay);
     setBrew((prev) => merge(prev, next));
-  }, []);
+  }, [exam, perDay]);
 
   useEffect(() => {
     let active = true;
-    const refresh = () => fetchBrew().then((next) => active && setBrew((prev) => merge(prev, next)));
+    const refresh = () =>
+      fetchBrew(exam, perDay).then((next) => active && setBrew((prev) => merge(prev, next)));
     refresh();
-    // The question turns over at midnight Eastern; pick up the new one on return.
+    // Questions turn over at midnight Eastern; pick up the new ones on return.
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
       reload();
@@ -63,7 +70,7 @@ export default function TodayScreen() {
       active = false;
       sub.remove();
     };
-  }, [reload]);
+  }, [exam, perDay, reload]);
 
   function retry() {
     setBrew(null);
@@ -76,17 +83,28 @@ export default function TodayScreen() {
     setRefreshing(false);
   }, [load]);
 
-  const question = brew?.question ?? null;
-  // "Today" is the current question's date, which follows Eastern time for everyone.
-  const today = question?.question_date ?? null;
+  // Until questions for the current settings arrive, show the loading state.
+  const current = brew?.key === `${exam}:${perDay}` ? brew : null;
+  const questions = current?.questions?.length ? current.questions : null;
+  // "Today" is the questions' date, which follows Eastern time for everyone.
+  const today = questions?.[0].question_date ?? null;
+  const answeredCount = questions?.filter((q) => answerFor(progress, q)).length ?? 0;
+  const allAnswered = !!questions && answeredCount === questions.length;
 
-  function handleAnswer(record: AnswerRecord) {
-    if (today) save(today, record);
+  function handleAnswer(question: DailyQuestion, record: AnswerRecord) {
+    // Answering the last of today's questions counts the day toward the streak.
+    const finishesDay = questions!.every((q) => q.id === question.id || answerFor(progress, q));
+    save(question, record, finishesDay ? question.question_date : null);
     if (record.correct) setCheers((n) => n + 1);
   }
 
-  const streak = today ? currentStreak(answers, today) : null;
+  const streak = today ? currentStreak(progress, today) : null;
   const artSize = Math.min(width * 0.5, 190);
+  const { shortName } = examFor(exam);
+  const tagline =
+    perDay === 1
+      ? `one ${shortName} question, freshly brewed every day`
+      : `${perDay} ${shortName} questions, freshly brewed every day`;
 
   return (
     <View style={styles.root}>
@@ -104,22 +122,34 @@ export default function TodayScreen() {
           )}
         </View>
 
+        <ExamSwitch />
+
         <View style={styles.hero}>
           <LatteHearts size={artSize} />
-          <Text style={styles.tagline}>one Praxis SLP question, freshly brewed every day</Text>
+          <Text style={styles.tagline}>{tagline}</Text>
         </View>
 
-        {question ? (
-          <QuestionCard
-            key={question.question_date}
-            question={question}
-            answer={answers[question.question_date]}
-            onAnswer={handleAnswer}
-          />
-        ) : brew?.error ? (
+        {questions ? (
+          <>
+            {questions.length > 1 && (
+              <Text style={styles.poured} accessibilityRole="header">
+                {answeredCount} of {questions.length} poured
+              </Text>
+            )}
+            {questions.map((q, i) => (
+              <QuestionCard
+                key={slotKey(q)}
+                question={q}
+                counter={questions.length > 1 ? `${i + 1} of ${questions.length}` : undefined}
+                answer={answerFor(progress, q)}
+                onAnswer={(record) => handleAnswer(q, record)}
+              />
+            ))}
+          </>
+        ) : current?.error ? (
           <View style={styles.statusCard}>
             <Text style={styles.statusTitle}>The espresso machine sputtered</Text>
-            <Text style={styles.statusText}>{brew.error}</Text>
+            <Text style={styles.statusText}>{current.error}</Text>
             <Pressable
               onPress={retry}
               accessibilityRole="button"
@@ -128,32 +158,43 @@ export default function TodayScreen() {
               <Text style={styles.retryText}>Try again</Text>
             </Pressable>
           </View>
-        ) : brew ? (
+        ) : current ? (
           <View style={styles.statusCard}>
             <Text style={styles.statusTitle}>Still brewing</Text>
             <Text style={styles.statusText}>
-              {"The first question is on its way. It's brewed fresh at midnight Eastern."}
+              {"The first questions are on their way. They're brewed fresh at midnight Eastern."}
             </Text>
           </View>
         ) : (
           <View style={styles.statusCard}>
             <ActivityIndicator color={colors.mocha} />
-            <Text style={styles.statusText}>{"Pouring today's question…"}</Text>
+            <Text style={styles.statusText}>
+              {perDay === 1 ? "Pouring today's question…" : "Pouring today's questions…"}
+            </Text>
           </View>
         )}
 
-        {today && answers[today] && (
-          <Text style={styles.comeBack}>Come back tomorrow for a fresh cup ♡</Text>
-        )}
+        {allAnswered && <Text style={styles.comeBack}>Come back tomorrow for a fresh cup ♡</Text>}
 
-        <Link href={session ? '/history' : '/sign-in'} asChild>
-          <Pressable
-            accessibilityRole="link"
-            style={({ pressed }) => [styles.historyLink, pressed && styles.pressed]}
-          >
-            <Text style={styles.historyText}>Past brews  →</Text>
-          </Pressable>
-        </Link>
+        <View style={styles.links}>
+          <Link href={session ? '/history' : '/sign-in'} asChild>
+            <Pressable
+              accessibilityRole="link"
+              style={({ pressed }) => [styles.pillLink, pressed && styles.pressed]}
+            >
+              <Text style={styles.pillText}>Past brews  →</Text>
+            </Pressable>
+          </Link>
+          <Link href="/settings" asChild>
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel={`Settings, ${perDay} a day`}
+              style={({ pressed }) => [styles.pillLink, pressed && styles.pressed]}
+            >
+              <Text style={styles.pillText}>{perDay} a day  ·  Settings</Text>
+            </Pressable>
+          </Link>
+        </View>
 
         {session ? (
           <View style={styles.account}>
@@ -231,9 +272,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   retryText: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.cream },
+  poured: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.mocha, textAlign: 'center' },
   comeBack: { fontFamily: fonts.displayItalic, fontSize: 16, color: colors.mocha, textAlign: 'center' },
-  historyLink: {
-    alignSelf: 'center',
+  links: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10 },
+  pillLink: {
     minHeight: 48,
     paddingHorizontal: 22,
     borderRadius: radius.pill,
@@ -241,7 +283,7 @@ const styles = StyleSheet.create({
     borderColor: colors.rose,
     justifyContent: 'center',
   },
-  historyText: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.espresso },
+  pillText: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.espresso },
   account: { alignItems: 'center', gap: 2, marginTop: 8 },
   accountText: { fontFamily: fonts.body, fontSize: 13, color: colors.mocha },
   accountButton: { minHeight: 44, paddingHorizontal: 16, justifyContent: 'center' },

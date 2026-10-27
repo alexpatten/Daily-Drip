@@ -9,6 +9,8 @@ import { ChoiceButton, type ChoiceState } from './ChoiceButton';
 
 type Props = {
   question: DailyQuestion;
+  // e.g. "2 of 5" when the day has several questions.
+  counter?: string;
   answer?: AnswerRecord;
   onAnswer: (record: AnswerRecord) => void;
 };
@@ -20,7 +22,7 @@ function haptic(correct: boolean) {
   ).catch(() => {});
 }
 
-export function QuestionCard({ question, answer, onAnswer }: Props) {
+export function QuestionCard({ question, counter, answer, onAnswer }: Props) {
   const [selected, setSelected] = useState<Letter | null>(null);
   const revealed = Boolean(answer);
 
@@ -42,8 +44,11 @@ export function QuestionCard({ question, answer, onAnswer }: Props) {
     <View style={styles.card}>
       {question.category && (
         <View style={styles.chipRow}>
-          <View style={styles.chip}>
-            <Text style={styles.chipText}>{question.category.name}</Text>
+          <View style={styles.chipLine}>
+            <View style={styles.chip}>
+              <Text style={styles.chipText}>{question.category.name}</Text>
+            </View>
+            {counter && <Text style={styles.counter}>{counter}</Text>}
           </View>
           <Text style={styles.testName} numberOfLines={2}>
             {question.category.test_name}
@@ -104,7 +109,10 @@ const styles = StyleSheet.create({
     ...shadow,
   },
   chipRow: { gap: 6, alignItems: 'flex-start' },
+  chipLine: { flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch', gap: 8 },
+  counter: { marginLeft: 'auto', fontFamily: fonts.bodyBold, fontSize: 12, color: colors.mocha },
   chip: {
+    flexShrink: 1,
     backgroundColor: colors.honeySoft,
     borderRadius: radius.pill,
     paddingVertical: 6,

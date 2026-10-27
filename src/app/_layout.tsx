@@ -58,8 +58,9 @@ function RootNavigator({ fontsReady }: { fontsReady: boolean }) {
         contentStyle: { backgroundColor: colors.blush },
       }}
     >
-      {/* Today's question is open to everyone; accounts unlock history. */}
+      {/* Today's questions and settings are open to everyone; accounts unlock history. */}
       <Stack.Screen name="index" />
+      <Stack.Screen name="settings" />
       <Stack.Protected guard={signedIn}>
         <Stack.Screen name="history" />
         <Stack.Screen name="reset-password" />
