@@ -18,6 +18,8 @@ export type DailyQuestion = {
   correct_answer: Letter;
   explanation: string;
   category: { name: string; test_name: string } | null;
+  // Set in the app: a question missed on an earlier day, served again for another try.
+  retry?: boolean;
 };
 
 const SELECT =
@@ -39,6 +41,18 @@ export function slotKey(q: DailyQuestion): string {
 export async function getTodaysQuestions(exam: ExamSlug, count: number): Promise<DailyQuestion[]> {
   const { data, error } = await supabase
     .rpc('todays_questions', { p_exam: exam, p_count: count })
+    .select(SELECT)
+    .returns<DailyQuestion[]>();
+  if (error) throw error;
+  return data;
+}
+
+// Earlier questions by id, for another try. Only questions already served before today
+// come back.
+export async function getRetryQuestions(exam: ExamSlug, ids: number[]): Promise<DailyQuestion[]> {
+  if (ids.length === 0) return [];
+  const { data, error } = await supabase
+    .rpc('retry_questions', { p_exam: exam, p_ids: ids })
     .select(SELECT)
     .returns<DailyQuestion[]>();
   if (error) throw error;

@@ -11,28 +11,76 @@ import {
 import { Link } from 'expo-router';
 
 import { Celebration } from '@/components/Celebration';
-import { ExamSwitch } from '@/components/ExamSwitch';
 import { LatteHearts } from '@/components/LatteHearts';
 import { QuestionCard } from '@/components/QuestionCard';
 import { Screen } from '@/components/Screen';
 import { displayName, signOut, useAuth } from '@/lib/auth';
 import { formatPretty } from '@/lib/dates';
 import { examFor, type ExamSlug } from '@/lib/exams';
-import { answerFor, currentStreak, useProgress, type AnswerRecord } from '@/lib/progress';
-import { getTodaysQuestions, slotKey, type DailyQuestion } from '@/lib/questions';
+import {
+  answerFor,
+  currentStreak,
+  RETRY_MIN_PER_DAY,
+  useProgress,
+  type AnswerRecord,
+} from '@/lib/progress';
+import {
+  getRetryQuestions,
+  getTodaysQuestions,
+  slotKey,
+  type DailyQuestion,
+} from '@/lib/questions';
 import { useSettings } from '@/lib/settings';
 import { colors, fonts, radius, shadow } from '@/theme';
 
 // `key` is the exam and count the questions were fetched for.
 type Brew = { key: string; questions: DailyQuestion[] | null; error: string | null };
 
-async function fetchBrew(exam: ExamSlug, perDay: number): Promise<Brew> {
+type RetriesFor = (exam: ExamSlug, today: string, limit: number) => number[];
+
+async function fetchBrew(exam: ExamSlug, perDay: number, retriesFor: RetriesFor): Promise<Brew> {
   const key = `${exam}:${perDay}`;
   try {
-    return { key, questions: await getTodaysQuestions(exam, perDay), error: null };
+    const fresh = await getTodaysQuestions(exam, perDay);
+    return { key, questions: await withRetries(exam, perDay, fresh, retriesFor), error: null };
   } catch (e) {
     return { key, questions: null, error: e instanceof Error ? e.message : 'Something went wrong.' };
   }
+}
+
+// Readers doing RETRY_MIN_PER_DAY or more a day get earlier misses back, in place of new
+// questions so the day's count stays the same. They're spread through the set and look
+// like any other question.
+async function withRetries(
+  exam: ExamSlug,
+  perDay: number,
+  fresh: DailyQuestion[],
+  retriesFor: RetriesFor,
+): Promise<DailyQuestion[]> {
+  const today = fresh[0]?.question_date;
+  if (!today || perDay < RETRY_MIN_PER_DAY) return fresh;
+
+  const freshIds = new Set(fresh.map((q) => q.id));
+  const ids = retriesFor(exam, today, perDay).filter((id) => !freshIds.has(id));
+  let retries: DailyQuestion[];
+  try {
+    retries = await getRetryQuestions(exam, ids);
+  } catch {
+    return fresh; // Today's new questions are still worth showing.
+  }
+  if (retries.length === 0) return fresh;
+
+  // Retries fill empty slots first (a partly brewed day), then replace new questions.
+  // Evenly spaced slots for the retries; new questions fill the rest in order.
+  const total = Math.min(perDay, fresh.length + retries.length);
+  const retrySlots = new Set(retries.map((_, j) => Math.floor(((j + 1) * total) / (retries.length + 1))));
+  const newOnes = fresh.slice(0, total - retries.length);
+  let r = 0;
+  let n = 0;
+  return Array.from({ length: total }, (_, i) => {
+    const q = retrySlots.has(i) ? { ...retries[r++], retry: true } : newOnes[n++];
+    return { ...q, question_date: today, position: i + 1 };
+  });
 }
 
 // A failed refresh keeps the questions already on screen.
@@ -45,20 +93,20 @@ export default function TodayScreen() {
   const { session } = useAuth();
   const { exam, perDay } = useSettings();
   const [brew, setBrew] = useState<Brew | null>(null);
-  const { progress, save, reload } = useProgress();
+  const { progress, save, reload, retriesFor } = useProgress();
   const [refreshing, setRefreshing] = useState(false);
   // Bumped on each correct answer to replay the celebration.
   const [cheers, setCheers] = useState(0);
 
   const load = useCallback(async () => {
-    const next = await fetchBrew(exam, perDay);
+    const next = await fetchBrew(exam, perDay, retriesFor);
     setBrew((prev) => merge(prev, next));
-  }, [exam, perDay]);
+  }, [exam, perDay, retriesFor]);
 
   useEffect(() => {
     let active = true;
     const refresh = () =>
-      fetchBrew(exam, perDay).then((next) => active && setBrew((prev) => merge(prev, next)));
+      fetchBrew(exam, perDay, retriesFor).then((next) => active && setBrew((prev) => merge(prev, next)));
     refresh();
     // Questions turn over at midnight Eastern; pick up the new ones on return.
     const sub = AppState.addEventListener('change', (state) => {
@@ -70,7 +118,7 @@ export default function TodayScreen() {
       active = false;
       sub.remove();
     };
-  }, [exam, perDay, reload]);
+  }, [exam, perDay, reload, retriesFor]);
 
   function retry() {
     setBrew(null);
@@ -121,8 +169,6 @@ export default function TodayScreen() {
             </View>
           )}
         </View>
-
-        <ExamSwitch />
 
         <View style={styles.hero}>
           <LatteHearts size={artSize} />

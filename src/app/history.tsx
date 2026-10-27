@@ -3,7 +3,6 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { router } from 'expo-router';
 
 import { Button } from '@/components/Button';
-import { ExamSwitch } from '@/components/ExamSwitch';
 import { QuestionCard } from '@/components/QuestionCard';
 import { Screen } from '@/components/Screen';
 import { formatShort } from '@/lib/dates';
@@ -99,13 +98,12 @@ export default function HistoryScreen() {
       <View>
         <Text style={styles.title}>Past brews</Text>
         <Text style={styles.subtitle}>
+          {`${examFor(exam).shortName}  ·  `}
           {answered === 0
             ? 'Catch up on questions you missed.'
             : `${correct} of ${answered} answered correctly`}
         </Text>
       </View>
-
-      <ExamSwitch />
 
       {error && <Text style={styles.empty}>{error}</Text>}
       {!questions && !error && <ActivityIndicator color={colors.mocha} />}
