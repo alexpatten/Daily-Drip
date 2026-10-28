@@ -19,8 +19,6 @@ export type DailyQuestion = {
   correct_answer: Letter;
   explanation: string;
   category: { name: string; test_name: string } | null;
-  // Set in the app: a question missed on an earlier day, served again for another try.
-  retry?: boolean;
 };
 
 const SELECT =
@@ -31,52 +29,32 @@ export function choiceText(q: DailyQuestion, letter: Letter): string {
   return { A: q.choice_a, B: q.choice_b, C: q.choice_c, D: q.choice_d }[letter];
 }
 
-// A question can come back on a later day (Security+ rotates), so a day's slot is the
-// stable key for lists.
+// A question comes back when its bank wraps around, so a day's slot is the stable key
+// for lists.
 export function slotKey(q: DailyQuestion): string {
   return `${q.exam}:${q.question_date}:${q.position}`;
 }
 
-// Today's questions for an exam, `count` of them, from its fixed bank in rotation. The
-// day turns over at midnight Eastern.
-export async function getTodaysQuestions(exam: ExamSlug, count: number): Promise<DailyQuestion[]> {
+// Today's question for an exam, from its fixed bank in rotation: one a day, so a reader
+// sees every question before any repeats. The day turns over at midnight Eastern. Null
+// if there isn't one.
+export async function getTodaysQuestion(exam: ExamSlug): Promise<DailyQuestion | null> {
   const { data, error } = await supabase
-    .rpc('todays_questions', { p_exam: exam, p_count: count })
+    .rpc('todays_questions', { p_exam: exam, p_count: 1 })
     .select(SELECT)
     .returns<DailyQuestion[]>();
   if (error) throw error;
-  return data;
+  return data[0] ?? null;
 }
 
-// Earlier questions by id, for another try. Only questions already served before today
-// come back.
-export async function getRetryQuestions(exam: ExamSlug, ids: number[]): Promise<DailyQuestion[]> {
-  if (ids.length === 0) return [];
+// How many past days to load at a time.
+export const PAST_PAGE_DAYS = 30;
+
+// The questions from up to PAST_PAGE_DAYS days before `beforeDate` (default: today),
+// newest first. Signed-in users only.
+export async function getPastQuestions(exam: ExamSlug, beforeDate: string | null): Promise<DailyQuestion[]> {
   const { data, error } = await supabase
-    .rpc('retry_questions', { p_exam: exam, p_ids: ids })
-    .select(SELECT)
-    .returns<DailyQuestion[]>();
-  if (error) throw error;
-  return data;
-}
-
-// Roughly how many past questions to load at a time.
-const PAST_PAGE_QUESTIONS = 30;
-
-export function pastPageDays(count: number): number {
-  return Math.max(1, Math.floor(PAST_PAGE_QUESTIONS / count));
-}
-
-// Questions from up to `days` days before `beforeDate` (default: today), newest first.
-// Signed-in users only.
-export async function getPastQuestions(
-  exam: ExamSlug,
-  count: number,
-  beforeDate: string | null,
-  days: number,
-): Promise<DailyQuestion[]> {
-  const { data, error } = await supabase
-    .rpc('past_questions', { p_exam: exam, p_count: count, p_before: beforeDate, p_days: days })
+    .rpc('past_questions', { p_exam: exam, p_count: 1, p_before: beforeDate, p_days: PAST_PAGE_DAYS })
     .select(SELECT)
     .returns<DailyQuestion[]>();
   if (error) throw error;

@@ -27,3 +27,20 @@ export function formatShort(date: string): string {
     day: 'numeric',
   });
 }
+
+// Today, "YYYY-MM-DD", in Eastern time, where the question of the day turns over. Null
+// if the device can't tell.
+export function easternDateString(date = new Date()): string | null {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const part = (type: string) => parts.find((p) => p.type === type)?.value;
+    return `${part('year')}-${part('month')}-${part('day')}`;
+  } catch {
+    return null;
+  }
+}

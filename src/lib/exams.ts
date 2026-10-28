@@ -26,6 +26,3 @@ export const EXAMS: Exam[] = [
 export function examFor(slug: ExamSlug): Exam {
   return EXAMS.find((e) => e.slug === slug) ?? EXAMS[0];
 }
-
-export const MIN_PER_DAY = 1;
-export const MAX_PER_DAY = 25;

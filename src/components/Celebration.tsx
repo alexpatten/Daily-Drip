@@ -18,7 +18,7 @@ import { LatteHearts } from './LatteHearts';
 
 const useNativeDriver = Platform.OS !== 'web';
 
-async function motionAllowed() {
+export async function motionAllowed() {
   try {
     return !(await AccessibilityInfo.isReduceMotionEnabled());
   } catch {
@@ -127,7 +127,27 @@ function cupAnimation(c: Cup) {
   ]);
 }
 
-function SpinningCup({ cup: c, size, award }: { cup: Cup; size: number; award?: Award }) {
+// The streak's number rolls over from yesterday's count to today's.
+function StreakCount({ cup: c, size, streak }: { cup: Cup; size: number; streak: number }) {
+  const shift = size * 0.42;
+  const outY = c.spin.interpolate({ inputRange: [0, 1], outputRange: [0, -shift] });
+  const outOpacity = c.spin.interpolate({ inputRange: [0, 0.5], outputRange: [1, 0], extrapolate: 'clamp' });
+  const inY = c.spin.interpolate({ inputRange: [0, 1], outputRange: [shift, 0] });
+  const inOpacity = c.spin.interpolate({ inputRange: [0.3, 0.8], outputRange: [0, 1], extrapolate: 'clamp' });
+  const numberStyle = [styles.streakNumber, { fontSize: size * 0.5, lineHeight: size * 0.6 }];
+  return (
+    <View style={[styles.streakCount, { width: size, height: size * 0.6 }]}>
+      <Animated.Text style={[numberStyle, { opacity: outOpacity, transform: [{ translateY: outY }] }]}>
+        {streak - 1}
+      </Animated.Text>
+      <Animated.Text style={[numberStyle, { opacity: inOpacity, transform: [{ translateY: inY }] }]}>
+        {streak}
+      </Animated.Text>
+    </View>
+  );
+}
+
+function SpinningCup({ cup: c, size, award, streak }: { cup: Cup; size: number; award?: Award; streak?: number }) {
   const fadeIn = c.pop.interpolate({ inputRange: [0, 0.4], outputRange: [0, 1], extrapolate: 'clamp' });
   const fadeOut = c.out.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
   const popScale = c.pop.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] });
@@ -147,16 +167,25 @@ function SpinningCup({ cup: c, size, award }: { cup: Cup; size: number; award?: 
       ]}
     >
       <View style={[styles.halo, { width: halo, height: halo, borderRadius: halo / 2 }]}>
-        <Animated.View style={{ transform: [{ rotate }] }}>
-          {award ? <CoffeeBadge award={award.id} size={size} /> : <LatteHearts size={size} />}
-        </Animated.View>
+        {streak ? (
+          <StreakCount cup={c} size={size} streak={streak} />
+        ) : (
+          <Animated.View style={{ transform: [{ rotate }] }}>
+            {award ? <CoffeeBadge award={award.id} size={size} /> : <LatteHearts size={size} />}
+          </Animated.View>
+        )}
       </View>
-      {award && (
+      {award ? (
         <View style={styles.caption}>
           <Text style={styles.captionLabel}>Award unlocked</Text>
           <Text style={styles.captionName}>{award.name}</Text>
         </View>
-      )}
+      ) : streak ? (
+        <View style={styles.caption}>
+          <Text style={styles.captionLabel}>Streak</Text>
+          <Text style={styles.captionName}>{streak} days in a row</Text>
+        </View>
+      ) : null}
     </Animated.View>
   );
 }
@@ -173,12 +202,14 @@ function makeShower(): Shower {
 type Props = {
   // An award to show off in place of the logo cup.
   award?: Award;
+  // A streak that just grew, shown as its day count in place of the logo cup.
+  streak?: number;
   onDone?: () => void;
 };
 
 // A one-shot celebration over the whole screen, so it's seen wherever the
 // person has scrolled to. Remount (new key) to replay.
-export function Celebration({ award, onDone }: Props) {
+export function Celebration({ award, streak, onDone }: Props) {
   const { width, height } = useWindowDimensions();
   const [shower, setShower] = useState<Shower | null>(null);
   const done = useRef(onDone);
@@ -189,16 +220,17 @@ export function Celebration({ award, onDone }: Props) {
   useEffect(() => {
     let cancelled = false;
     if (award) AccessibilityInfo.announceForAccessibility(`Award unlocked: ${award.name}`);
+    else if (streak) AccessibilityInfo.announceForAccessibility(`${streak} day streak`);
     motionAllowed().then((ok) => {
       if (cancelled) return;
       if (ok) setShower(makeShower());
       // Without motion there's nothing to wait for.
-      else setTimeout(() => done.current?.(), award ? 1500 : 0);
+      else setTimeout(() => done.current?.(), award || streak ? 1500 : 0);
     });
     return () => {
       cancelled = true;
     };
-  }, [award]);
+  }, [award, streak]);
 
   // Start once everything is mounted so the native driver has views to drive.
   useEffect(() => {
@@ -226,7 +258,7 @@ export function Celebration({ award, onDone }: Props) {
   if (!shower) return null;
   return (
     <View style={styles.overlay} aria-hidden>
-      <SpinningCup cup={shower.cup} size={Math.min(width * 0.42, 170)} award={award} />
+      <SpinningCup cup={shower.cup} size={Math.min(width * 0.42, 170)} award={award} streak={streak} />
       {shower.petals.map((p, i) => (
         <FallingPetal key={i} petal={p} width={width} height={height} />
       ))}
@@ -258,29 +290,44 @@ const styles = StyleSheet.create({
   captionLabel: { fontFamily: fonts.bodyBold, fontSize: 12, color: colors.caramel, textTransform: 'uppercase', letterSpacing: 1 },
   captionName: { fontFamily: fonts.display, fontSize: 20, color: colors.espresso },
   petal: { position: 'absolute', top: 0 },
+  streakCount: { overflow: 'hidden' },
+  streakNumber: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    fontFamily: fonts.display,
+    color: colors.caramel,
+    textAlign: 'center',
+  },
 });
 
-type Cheer = { id: number; award?: Award };
+type Cheer = { id: number; award?: Award; streak?: number };
 
 /**
- * Celebrations for a screen: a plain one for a right answer, and one per award earned.
- * Awards play one after another; a plain cheer just replays the current one.
+ * Celebrations for a screen: a plain one for a right answer, one for a streak that just
+ * grew, and one per award earned. The streak and awards play one after another; a plain
+ * cheer just replays the current one.
  */
 export function useCelebrations() {
   const [queue, setQueue] = useState<Cheer[]>([]);
   const nextId = useRef(0);
 
-  const celebrate = useCallback((earned: Award[] = []) => {
-    const added = earned.map((award) => ({ id: ++nextId.current, award }));
+  const celebrate = useCallback((earned: Award[] = [], streak?: number) => {
+    const added: Cheer[] = [
+      ...(streak ? [{ id: ++nextId.current, streak }] : []),
+      ...earned.map((award) => ({ id: ++nextId.current, award })),
+    ];
     const plain = { id: ++nextId.current };
     setQueue((q) => {
-      const awards = [...q.filter((c) => c.award), ...added];
-      return awards.length > 0 ? awards : [plain];
+      const special = [...q.filter((c) => c.award || c.streak), ...added];
+      return special.length > 0 ? special : [plain];
     });
   }, []);
 
   const current = queue[0];
   const finish = useCallback(() => setQueue((q) => q.slice(1)), []);
-  const celebration = current ? <Celebration key={current.id} award={current.award} onDone={finish} /> : null;
+  const celebration = current ? (
+    <Celebration key={current.id} award={current.award} streak={current.streak} onDone={finish} />
+  ) : null;
   return { celebration, celebrate };
 }

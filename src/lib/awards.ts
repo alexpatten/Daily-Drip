@@ -1,5 +1,5 @@
 import { addDays, localDateString } from './dates';
-import { EXAMS, MAX_PER_DAY, type ExamSlug } from './exams';
+import { EXAMS, type ExamSlug } from './exams';
 import type { AnswerRecord, Progress } from './progress';
 import type { DailyQuestion } from './questions';
 
@@ -10,8 +10,6 @@ export type QuestionCounts = Partial<Record<ExamSlug, number>>;
 export type AwardEvent = {
   question: DailyQuestion;
   record: AnswerRecord;
-  // Set when this answer finished the day's set on the day.
-  day: { size: number; allCorrect: boolean } | null;
   at: Date;
 };
 
@@ -87,27 +85,6 @@ export const AWARDS: Award[] = [
     }),
   ),
 
-  {
-    id: 'perfect-day',
-    group: 'extra',
-    name: 'Perfect Pour',
-    description: 'Get every question right on a day of 5 or more.',
-    moment: (e) => !!e.day && e.day.size >= 5 && e.day.allCorrect,
-  },
-  {
-    id: 'full-pot',
-    group: 'extra',
-    name: 'Full Pot',
-    description: `Finish a day of ${MAX_PER_DAY} questions.`,
-    moment: (e) => !!e.day && e.day.size >= MAX_PER_DAY,
-  },
-  {
-    id: 'second-shot',
-    group: 'extra',
-    name: 'Second Shot',
-    description: 'Get a missed question right when it comes back.',
-    moment: (e) => !!e.question.retry && e.record.correct,
-  },
   {
     id: 'hot-streak',
     group: 'extra',

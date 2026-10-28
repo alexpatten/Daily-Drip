@@ -1,21 +1,18 @@
 import { useSyncExternalStore } from 'react';
 
-import { EXAMS, MAX_PER_DAY, MIN_PER_DAY, type ExamSlug } from './exams';
+import { EXAMS, type ExamSlug } from './exams';
 import { getItem, setItem } from './storage';
 
-// Which exam to practice and how many questions a day. Kept on this device.
+// Which exam to practice. Kept on this device.
 const KEY = 'daily-drip:settings:v1';
 
-export type Settings = { exam: ExamSlug; perDay: number };
+export type Settings = { exam: ExamSlug };
 
-const DEFAULTS: Settings = { exam: 'praxis-slp', perDay: 1 };
+const DEFAULTS: Settings = { exam: 'praxis-slp' };
 
 function clean(value: Partial<Settings>): Settings {
   const exam = EXAMS.some((e) => e.slug === value.exam) ? (value.exam as ExamSlug) : DEFAULTS.exam;
-  const perDay = Number.isInteger(value.perDay)
-    ? Math.min(Math.max(value.perDay as number, MIN_PER_DAY), MAX_PER_DAY)
-    : DEFAULTS.perDay;
-  return { exam, perDay };
+  return { exam };
 }
 
 function load(): Settings {

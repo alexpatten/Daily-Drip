@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   AppState,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -10,90 +12,80 @@ import {
 } from 'react-native';
 import { Link } from 'expo-router';
 
-import { useCelebrations } from '@/components/Celebration';
+import { motionAllowed, useCelebrations } from '@/components/Celebration';
 import { LatteHearts } from '@/components/LatteHearts';
 import { QuestionCard } from '@/components/QuestionCard';
 import { Screen } from '@/components/Screen';
 import { displayName, signOut, useAuth } from '@/lib/auth';
-import { formatPretty } from '@/lib/dates';
+import { easternDateString, formatPretty } from '@/lib/dates';
 import { examFor, type ExamSlug } from '@/lib/exams';
-import {
-  answerFor,
-  currentStreak,
-  RETRY_MIN_PER_DAY,
-  useProgress,
-  type AnswerRecord,
-} from '@/lib/progress';
-import {
-  getRetryQuestions,
-  getTodaysQuestions,
-  slotKey,
-  type DailyQuestion,
-} from '@/lib/questions';
+import { answerFor, currentStreak, useProgress, type AnswerRecord } from '@/lib/progress';
+import { getTodaysQuestion, slotKey, type DailyQuestion } from '@/lib/questions';
 import { useSettings } from '@/lib/settings';
 import { colors, fonts, radius, shadow } from '@/theme';
 
-// `key` is the exam and count the questions were fetched for.
-type Brew = { key: string; questions: DailyQuestion[] | null; error: string | null };
+// `key` is the exam the question was fetched for.
+type Brew = { key: string; question: DailyQuestion | null; error: string | null };
 
-type RetriesFor = (exam: ExamSlug, today: string, limit: number) => number[];
-
-async function fetchBrew(exam: ExamSlug, perDay: number, retriesFor: RetriesFor): Promise<Brew> {
-  const key = `${exam}:${perDay}`;
+async function fetchBrew(exam: ExamSlug): Promise<Brew> {
   try {
-    const fresh = await getTodaysQuestions(exam, perDay);
-    return { key, questions: await withRetries(exam, perDay, fresh, retriesFor), error: null };
+    return { key: exam, question: await getTodaysQuestion(exam), error: null };
   } catch (e) {
-    return { key, questions: null, error: e instanceof Error ? e.message : 'Something went wrong.' };
+    return { key: exam, question: null, error: e instanceof Error ? e.message : 'Something went wrong.' };
   }
 }
 
-// Readers doing RETRY_MIN_PER_DAY or more a day get earlier misses back, in place of new
-// questions so the day's count stays the same. They're spread through the set and look
-// like any other question.
-async function withRetries(
-  exam: ExamSlug,
-  perDay: number,
-  fresh: DailyQuestion[],
-  retriesFor: RetriesFor,
-): Promise<DailyQuestion[]> {
-  const today = fresh[0]?.question_date;
-  if (!today || perDay < RETRY_MIN_PER_DAY) return fresh;
+// How often to check whether it's past midnight Eastern while the app stays open.
+const TURNOVER_CHECK_MS = 60 * 1000;
 
-  const freshIds = new Set(fresh.map((q) => q.id));
-  const ids = retriesFor(exam, today, perDay).filter((id) => !freshIds.has(id));
-  let retries: DailyQuestion[];
-  try {
-    retries = await getRetryQuestions(exam, ids);
-  } catch {
-    return fresh; // Today's new questions are still worth showing.
-  }
-  if (retries.length === 0) return fresh;
+// The day count in the header, which bounces when it goes up.
+function StreakBadge({ streak }: { streak: number }) {
+  const [scale] = useState(() => new Animated.Value(1));
+  const shown = useRef(streak);
 
-  // Retries fill empty slots first (a partly brewed day), then replace new questions.
-  // Evenly spaced slots for the retries; new questions fill the rest in order.
-  const total = Math.min(perDay, fresh.length + retries.length);
-  const retrySlots = new Set(retries.map((_, j) => Math.floor(((j + 1) * total) / (retries.length + 1))));
-  const newOnes = fresh.slice(0, total - retries.length);
-  let r = 0;
-  let n = 0;
-  return Array.from({ length: total }, (_, i) => {
-    const q = retrySlots.has(i) ? { ...retries[r++], retry: true } : newOnes[n++];
-    return { ...q, question_date: today, position: i + 1 };
-  });
+  useEffect(() => {
+    const grew = streak > shown.current;
+    shown.current = streak;
+    if (!grew) return;
+    let anim: Animated.CompositeAnimation | null = null;
+    let cancelled = false;
+    motionAllowed().then((ok) => {
+      if (!ok || cancelled) return;
+      const useNativeDriver = Platform.OS !== 'web';
+      anim = Animated.sequence([
+        Animated.timing(scale, { toValue: 1.25, duration: 160, useNativeDriver }),
+        Animated.spring(scale, { toValue: 1, friction: 3, tension: 140, useNativeDriver }),
+      ]);
+      anim.start();
+    });
+    return () => {
+      cancelled = true;
+      anim?.stop();
+    };
+  }, [streak, scale]);
+
+  return (
+    <Animated.View
+      style={[styles.streak, { transform: [{ scale }] }]}
+      accessibilityLabel={`${streak} day streak`}
+    >
+      <Text style={styles.streakNumber}>{streak}</Text>
+      <Text style={styles.streakLabel}>day streak</Text>
+    </Animated.View>
+  );
 }
 
-// A failed refresh keeps the questions already on screen.
+// A failed refresh keeps the question already on screen.
 function merge(prev: Brew | null, next: Brew): Brew {
-  return next.error && prev?.questions && prev.key === next.key ? prev : next;
+  return next.error && prev?.question && prev.key === next.key ? prev : next;
 }
 
 export default function TodayScreen() {
   const { width } = useWindowDimensions();
   const { session } = useAuth();
-  const { exam, perDay } = useSettings();
+  const { exam } = useSettings();
   const [brew, setBrew] = useState<Brew | null>(null);
-  const { progress, save, reload, retriesFor, syncAwards } = useProgress();
+  const { progress, save, reload, syncAwards } = useProgress();
   const [refreshing, setRefreshing] = useState(false);
   const { celebration, celebrate } = useCelebrations();
 
@@ -103,26 +95,34 @@ export default function TodayScreen() {
   }, [syncAwards]);
 
   const load = useCallback(async () => {
-    const next = await fetchBrew(exam, perDay, retriesFor);
+    const next = await fetchBrew(exam);
     setBrew((prev) => merge(prev, next));
-  }, [exam, perDay, retriesFor]);
+  }, [exam]);
 
   useEffect(() => {
     let active = true;
-    const refresh = () =>
-      fetchBrew(exam, perDay, retriesFor).then((next) => active && setBrew((prev) => merge(prev, next)));
+    const refresh = () => fetchBrew(exam).then((next) => active && setBrew((prev) => merge(prev, next)));
     refresh();
-    // Questions turn over at midnight Eastern; pick up the new ones on return.
+    // The question turns over at midnight Eastern: pick up the new one on return to the
+    // app, and at midnight if the app is left open.
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
       reload();
       refresh();
     });
+    let checkedDay = easternDateString();
+    const timer = setInterval(() => {
+      const day = easternDateString();
+      if (day === checkedDay || AppState.currentState !== 'active') return;
+      checkedDay = day;
+      refresh();
+    }, TURNOVER_CHECK_MS);
     return () => {
       active = false;
       sub.remove();
+      clearInterval(timer);
     };
-  }, [exam, perDay, reload, retriesFor]);
+  }, [exam, reload]);
 
   function retry() {
     setBrew(null);
@@ -135,28 +135,28 @@ export default function TodayScreen() {
     setRefreshing(false);
   }, [load]);
 
-  // Until questions for the current settings arrive, show the loading state.
-  const current = brew?.key === `${exam}:${perDay}` ? brew : null;
-  const questions = current?.questions?.length ? current.questions : null;
-  // "Today" is the questions' date, which follows Eastern time for everyone.
-  const today = questions?.[0].question_date ?? null;
-  const answeredCount = questions?.filter((q) => answerFor(progress, q)).length ?? 0;
-  const allAnswered = !!questions && answeredCount === questions.length;
+  // Until the question for the current exam arrives, show the loading state.
+  const current = brew?.key === exam ? brew : null;
+  const question = current?.question ?? null;
+  // "Today" is the question's date, which follows Eastern time for everyone.
+  const today = question?.question_date ?? null;
+  const answer = question ? answerFor(progress, question) : undefined;
 
-  function handleAnswer(question: DailyQuestion, record: AnswerRecord) {
-    // Answering the last of today's questions counts the day toward the streak.
-    const finishesDay = questions!.every((q) => q.id === question.id || answerFor(progress, q));
-    const earned = save(question, record, finishesDay ? questions : null);
-    if (record.correct || earned.length > 0) celebrate(earned);
+  function handleAnswer(q: DailyQuestion, record: AnswerRecord) {
+    // Answering today's question counts the day toward the streak.
+    const earned = save(q, record, true);
+    // From the second day in a row on, it gets its own celebration.
+    const grown = !progress.streakDays.includes(q.question_date)
+      ? currentStreak({ ...progress, streakDays: [...progress.streakDays, q.question_date] }, q.question_date)
+      : 0;
+    const streakUp = grown >= 2 ? grown : undefined;
+    if (record.correct || earned.length > 0 || streakUp) celebrate(earned, streakUp);
   }
 
   const streak = today ? currentStreak(progress, today) : null;
   const artSize = Math.min(width * 0.5, 190);
   const { shortName } = examFor(exam);
-  const tagline =
-    perDay === 1
-      ? `one ${shortName} question, freshly brewed every day`
-      : `${perDay} ${shortName} questions, freshly brewed every day`;
+  const tagline = `one ${shortName} question, freshly brewed every day`;
 
   return (
     <View style={styles.root}>
@@ -166,12 +166,7 @@ export default function TodayScreen() {
             <Text style={styles.brand}>Daily Drip</Text>
             {today && <Text style={styles.date}>{formatPretty(today)}</Text>}
           </View>
-          {streak !== null && (
-            <View style={styles.streak} accessibilityLabel={`${streak} day streak`}>
-              <Text style={styles.streakNumber}>{streak}</Text>
-              <Text style={styles.streakLabel}>day streak</Text>
-            </View>
-          )}
+          {streak !== null && <StreakBadge streak={streak} />}
         </View>
 
         <View style={styles.hero}>
@@ -179,23 +174,13 @@ export default function TodayScreen() {
           <Text style={styles.tagline}>{tagline}</Text>
         </View>
 
-        {questions ? (
-          <>
-            {questions.length > 1 && (
-              <Text style={styles.poured} accessibilityRole="header">
-                {answeredCount} of {questions.length} poured
-              </Text>
-            )}
-            {questions.map((q, i) => (
-              <QuestionCard
-                key={slotKey(q)}
-                question={q}
-                counter={questions.length > 1 ? `${i + 1} of ${questions.length}` : undefined}
-                answer={answerFor(progress, q)}
-                onAnswer={(record) => handleAnswer(q, record)}
-              />
-            ))}
-          </>
+        {question ? (
+          <QuestionCard
+            key={slotKey(question)}
+            question={question}
+            answer={answer}
+            onAnswer={(record) => handleAnswer(question, record)}
+          />
         ) : current?.error ? (
           <View style={styles.statusCard}>
             <Text style={styles.statusTitle}>The espresso machine sputtered</Text>
@@ -212,19 +197,19 @@ export default function TodayScreen() {
           <View style={styles.statusCard}>
             <Text style={styles.statusTitle}>Still brewing</Text>
             <Text style={styles.statusText}>
-              {"Today's questions are on their way. Pull down to check again in a moment."}
+              {"Today's question is on its way. Pull down to check again in a moment."}
             </Text>
           </View>
         ) : (
           <View style={styles.statusCard}>
             <ActivityIndicator color={colors.mocha} />
             <Text style={styles.statusText}>
-              {perDay === 1 ? "Pouring today's question…" : "Pouring today's questions…"}
+              {"Pouring today's question…"}
             </Text>
           </View>
         )}
 
-        {allAnswered && <Text style={styles.comeBack}>Come back tomorrow for a fresh cup ♡</Text>}
+        {answer && <Text style={styles.comeBack}>Come back tomorrow for a fresh cup ♡</Text>}
 
         <View style={styles.links}>
           <Link href={session ? '/history' : '/sign-in'} asChild>
@@ -246,10 +231,10 @@ export default function TodayScreen() {
           <Link href="/settings" asChild>
             <Pressable
               accessibilityRole="link"
-              accessibilityLabel={`Settings, ${perDay} a day`}
+              accessibilityLabel={`Settings, ${shortName}`}
               style={({ pressed }) => [styles.pillLink, pressed && styles.pressed]}
             >
-              <Text style={styles.pillText}>{perDay} a day  ·  Settings</Text>
+              <Text style={styles.pillText}>{shortName}  ·  Settings</Text>
             </Pressable>
           </Link>
         </View>
@@ -330,7 +315,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   retryText: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.cream },
-  poured: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.mocha, textAlign: 'center' },
   comeBack: { fontFamily: fonts.displayItalic, fontSize: 16, color: colors.mocha, textAlign: 'center' },
   links: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10 },
   pillLink: {

@@ -9,31 +9,32 @@ import { Screen } from '@/components/Screen';
 import { formatShort } from '@/lib/dates';
 import { examFor, type ExamSlug } from '@/lib/exams';
 import { answerFor, totals, useProgress, type AnswerRecord } from '@/lib/progress';
-import { getPastQuestions, pastPageDays, slotKey, type DailyQuestion } from '@/lib/questions';
+import { getPastQuestions, PAST_PAGE_DAYS, slotKey, type DailyQuestion } from '@/lib/questions';
 import { useSettings } from '@/lib/settings';
 import { colors, fonts, radius, shadow } from '@/theme';
 
-// `key` is the exam and count the questions were fetched for.
+// `key` is the exam the questions were fetched for.
 type Past = { key: string; questions: DailyQuestion[] | null; hasMore: boolean; error: string | null };
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong.');
 
 // A page of past days' questions before `beforeDate` (default: today), newest first.
-async function fetchPast(exam: ExamSlug, perDay: number, beforeDate: string | null): Promise<Past> {
-  const key = `${exam}:${perDay}`;
-  const days = pastPageDays(perDay);
+async function fetchPast(exam: ExamSlug, beforeDate: string | null): Promise<Past> {
+  const key = exam;
   try {
-    const page = await getPastQuestions(exam, perDay, beforeDate, days);
+    const page = await getPastQuestions(exam, beforeDate);
     const pageDays = new Set(page.map((q) => q.question_date)).size;
-    return { key, questions: page, hasMore: pageDays === days, error: null };
+    // Only the exam chosen in settings, whatever comes back.
+    const questions = page.filter((q) => q.exam === exam);
+    return { key, questions, hasMore: pageDays === PAST_PAGE_DAYS, error: null };
   } catch (e) {
     return { key, questions: null, hasMore: false, error: errorMessage(e) };
   }
 }
 
 export default function HistoryScreen() {
-  const { exam, perDay } = useSettings();
-  const key = `${exam}:${perDay}`;
+  const { exam } = useSettings();
+  const key = exam;
   const [past, setPast] = useState<Past | null>(null);
   const { progress, save } = useProgress();
   const [open, setOpen] = useState<string | null>(null);
@@ -43,23 +44,23 @@ export default function HistoryScreen() {
 
   useEffect(() => {
     let active = true;
-    fetchPast(exam, perDay, null).then((next) => active && setPast(next));
+    fetchPast(exam, null).then((next) => active && setPast(next));
     return () => {
       active = false;
     };
-  }, [exam, perDay]);
+  }, [exam]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    const next = await fetchPast(exam, perDay, null);
+    const next = await fetchPast(exam, null);
     // A failed refresh keeps the questions already on screen.
     setPast((prev) =>
       next.error && prev?.questions && prev.key === next.key ? { ...prev, error: next.error } : next,
     );
     setRefreshing(false);
-  }, [exam, perDay]);
+  }, [exam]);
 
-  // Until questions for the current settings arrive, show the loading state.
+  // Until questions for the current exam arrive, show the loading state.
   const current = past?.key === key ? past : null;
   const questions = current?.questions ?? null;
 
@@ -67,7 +68,7 @@ export default function HistoryScreen() {
     const oldest = questions?.[questions.length - 1]?.question_date;
     if (!oldest) return;
     setLoadingMore(true);
-    const next = await fetchPast(exam, perDay, oldest);
+    const next = await fetchPast(exam, oldest);
     setPast((prev) => {
       if (prev?.key !== next.key) return prev;
       if (next.error) return { ...prev, error: next.error };
