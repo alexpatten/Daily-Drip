@@ -5,16 +5,17 @@ import { router } from 'expo-router';
 import { useCelebrations } from '@/components/Celebration';
 import { CoffeeBadge } from '@/components/CoffeeBadge';
 import { Screen } from '@/components/Screen';
-import { AWARD_GROUPS, awardStatuses, type AwardStatus } from '@/lib/awards';
+import { AWARD_GROUPS, awardShareMessage, awardStatuses, type AwardStatus } from '@/lib/awards';
 import { formatShort } from '@/lib/dates';
 import { useProgress } from '@/lib/progress';
 import { cachedQuestionCounts, getQuestionCounts } from '@/lib/questions';
+import { shareWithLink } from '@/lib/share';
 import { colors, fonts, radius, shadow } from '@/theme';
 
 export default function AwardsScreen() {
   const { progress, syncAwards } = useProgress();
   const [counts, setCounts] = useState(cachedQuestionCounts);
-  const { celebration, celebrate } = useCelebrations();
+  const { celebration, replay } = useCelebrations();
 
   useEffect(() => {
     let active = true;
@@ -60,7 +61,7 @@ export default function AwardsScreen() {
             {statuses
               .filter((s) => s.award.group === group)
               .map((s) => (
-                <AwardRow key={s.award.id} status={s} onReplay={() => celebrate([s.award])} />
+                <AwardRow key={s.award.id} status={s} onReplay={() => replay(s.award)} />
               ))}
           </View>
         ))}
@@ -74,35 +75,63 @@ function AwardRow({ status, onReplay }: { status: AwardStatus; onReplay: () => v
   const { award, earnedOn, progress } = status;
   const earned = !!earnedOn;
   const value = progress ? Math.min(progress.value, progress.goal) : 0;
-  const detail = earned
+  // A word about the last share, shown in place of the detail for a moment.
+  const [note, setNote] = useState<string | null>(null);
+  const standing = earned
     ? `Earned ${formatShort(earnedOn)}`
     : progress
       ? `${value} of ${progress.goal}`
       : null;
+  const detail = note ?? standing;
+
+  useEffect(() => {
+    if (!note) return;
+    const timer = setTimeout(() => setNote(null), 2500);
+    return () => clearTimeout(timer);
+  }, [note]);
+
+  async function share() {
+    const result = await shareWithLink(awardShareMessage(award));
+    if (result === 'copied') setNote('Copied to share ♡');
+    else if (result === 'failed') setNote("Couldn't open sharing");
+  }
 
   return (
-    <Pressable
-      onPress={onReplay}
-      disabled={!earned}
-      accessibilityRole={earned ? 'button' : 'text'}
-      accessibilityLabel={`${award.name}. ${award.description} ${detail ?? 'Not earned yet.'}`}
-      accessibilityHint={earned ? 'Replays the celebration' : undefined}
-      style={({ pressed }) => [styles.row, !earned && styles.rowLocked, pressed && styles.pressed]}
-    >
-      <View style={[styles.badge, earned && styles.badgeEarned]}>
-        <CoffeeBadge award={award.id} size={64} locked={!earned} />
-      </View>
-      <View style={styles.rowText}>
-        <Text style={styles.name}>{award.name}</Text>
-        <Text style={styles.description}>{award.description}</Text>
-        {!earned && progress && progress.goal > 1 && (
-          <View style={styles.track}>
-            <View style={[styles.fill, { width: `${(value / progress.goal) * 100}%` }]} />
-          </View>
-        )}
-        {detail && <Text style={[styles.detail, earned && styles.detailEarned]}>{detail}</Text>}
-      </View>
-    </Pressable>
+    <View style={[styles.row, !earned && styles.rowLocked]}>
+      <Pressable
+        onPress={onReplay}
+        disabled={!earned}
+        accessibilityRole={earned ? 'button' : 'text'}
+        accessibilityLabel={`${award.name}. ${award.description} ${detail ?? 'Not earned yet.'}`}
+        accessibilityHint={earned ? 'Replays the celebration' : undefined}
+        style={({ pressed }) => [styles.rowMain, pressed && styles.pressed]}
+      >
+        <View style={[styles.badge, earned && styles.badgeEarned]}>
+          <CoffeeBadge award={award.id} size={64} locked={!earned} />
+        </View>
+        <View style={styles.rowText}>
+          <Text style={styles.name}>{award.name}</Text>
+          <Text style={styles.description}>{award.description}</Text>
+          {!earned && progress && progress.goal > 1 && (
+            <View style={styles.track}>
+              <View style={[styles.fill, { width: `${(value / progress.goal) * 100}%` }]} />
+            </View>
+          )}
+          {detail && <Text style={[styles.detail, earned && styles.detailEarned]}>{detail}</Text>}
+        </View>
+      </Pressable>
+      {earned && (
+        <Pressable
+          onPress={share}
+          accessibilityRole="button"
+          accessibilityLabel={`Share ${award.name}`}
+          hitSlop={6}
+          style={({ pressed }) => [styles.share, pressed && styles.pressed]}
+        >
+          <Text style={styles.shareText}>Share</Text>
+        </Pressable>
+      )}
+    </View>
   );
 }
 
@@ -122,13 +151,23 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 10,
     padding: 14,
     borderRadius: radius.md,
     backgroundColor: colors.cream,
     ...shadow,
   },
   rowLocked: { backgroundColor: colors.foam, shadowOpacity: 0.05 },
+  rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 14 },
+  share: {
+    minHeight: 44,
+    paddingHorizontal: 14,
+    borderRadius: radius.pill,
+    borderWidth: 2,
+    borderColor: colors.rose,
+    justifyContent: 'center',
+  },
+  shareText: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.espresso },
   badge: {
     width: 76,
     height: 76,

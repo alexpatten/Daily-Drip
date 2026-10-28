@@ -184,3 +184,10 @@ export function awardStatuses(progress: Progress, counts: QuestionCounts | null)
     progress: award.progress?.(stats) ?? null,
   }));
 }
+
+// What sharing an earned award says, e.g. "I earned the Full Week award on Daily Drip ☕
+// (finish 7 days in a row)".
+export function awardShareMessage(award: Award): string {
+  const how = award.description.replace(/\.$/, '');
+  return `I earned the ${award.name} award on Daily Drip ☕ (${how.charAt(0).toLowerCase()}${how.slice(1)})`;
+}

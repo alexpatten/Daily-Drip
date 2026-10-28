@@ -324,10 +324,16 @@ export function useCelebrations() {
     });
   }, []);
 
+  // Replays one award on request. Ignored while a celebration is playing, so taps don't
+  // stack up.
+  const replay = useCallback((award: Award) => {
+    setQueue((q) => (q.length > 0 ? q : [{ id: ++nextId.current, award }]));
+  }, []);
+
   const current = queue[0];
   const finish = useCallback(() => setQueue((q) => q.slice(1)), []);
   const celebration = current ? (
     <Celebration key={current.id} award={current.award} streak={current.streak} onDone={finish} />
   ) : null;
-  return { celebration, celebrate };
+  return { celebration, celebrate, replay };
 }
