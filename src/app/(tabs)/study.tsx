@@ -307,8 +307,12 @@ function StudySession({ exam, subscription }: { exam: ExamSlug; subscription: Su
               {`Daily Drip Plus ends on ${new Date(subscription.current_period_end).toLocaleDateString()}.`}
             </Text>
           )}
-          {CAN_SUBSCRIBE_HERE && (
-            <Button label="Manage subscription" variant="text" loading={managing} onPress={manage} />
+          {subscription.status === 'comped' ? (
+            <Text style={styles.hint}>You have complimentary Daily Drip Plus ♡</Text>
+          ) : (
+            CAN_SUBSCRIBE_HERE && (
+              <Button label="Manage subscription" variant="text" loading={managing} onPress={manage} />
+            )
           )}
           {manageError && <Notice tone="error">{manageError}</Notice>}
         </View>

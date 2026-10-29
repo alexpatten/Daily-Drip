@@ -17,7 +17,7 @@ const ALLOWED_RETURN_ORIGINS = (Deno.env.get("ALLOWED_RETURN_ORIGINS") ?? "https
   .split(",")
   .map((origin) => origin.trim());
 // Keep in sync with private.has_study_access().
-const ACTIVE_STATUSES = ["active", "trialing"];
+const ACTIVE_STATUSES = ["active", "trialing", "comped"];
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -59,7 +59,8 @@ function allowedReturnUrl(value: unknown): string | null {
   }
 }
 
-type SubscriptionRow = { stripe_customer_id: string; status: string };
+// Complimentary rows have no Stripe customer.
+type SubscriptionRow = { stripe_customer_id: string | null; status: string };
 
 async function subscriptionFor(user: User): Promise<SubscriptionRow | null> {
   const { data, error } = await supabase
@@ -74,18 +75,25 @@ async function subscriptionFor(user: User): Promise<SubscriptionRow | null> {
 // The reader's Stripe customer, created on their first checkout.
 async function customerFor(user: User): Promise<string> {
   const existing = await subscriptionFor(user);
-  if (existing) return existing.stripe_customer_id;
+  if (existing?.stripe_customer_id) return existing.stripe_customer_id;
   const customer = await stripe.customers.create({
     email: user.email,
     name: typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : undefined,
     metadata: { user_id: user.id },
   });
-  // Two checkouts at once: keep whichever customer was saved first.
-  const { error } = await supabase
-    .from("subscriptions")
-    .upsert({ user_id: user.id, stripe_customer_id: customer.id }, { onConflict: "user_id", ignoreDuplicates: true });
+  // Two checkouts at once: keep whichever customer was saved first. A reader whose
+  // complimentary access ended already has a row, without a customer.
+  const { error } = existing
+    ? await supabase
+      .from("subscriptions")
+      .update({ stripe_customer_id: customer.id })
+      .eq("user_id", user.id)
+      .is("stripe_customer_id", null)
+    : await supabase
+      .from("subscriptions")
+      .upsert({ user_id: user.id, stripe_customer_id: customer.id }, { onConflict: "user_id", ignoreDuplicates: true });
   if (error) throw error;
-  return (await subscriptionFor(user))!.stripe_customer_id;
+  return (await subscriptionFor(user))?.stripe_customer_id ?? customer.id;
 }
 
 async function plan() {
@@ -119,7 +127,7 @@ async function checkout(user: User, returnUrl: string) {
 
 async function portal(user: User, returnUrl: string) {
   const existing = await subscriptionFor(user);
-  if (!existing) return json({ error: "There's no subscription to manage yet." }, 404);
+  if (!existing?.stripe_customer_id) return json({ error: "There's no subscription to manage yet." }, 404);
   const session = await stripe.billingPortal.sessions.create({
     customer: existing.stripe_customer_id,
     return_url: returnUrl,

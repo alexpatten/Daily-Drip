@@ -10,8 +10,9 @@ import { supabase } from './supabase';
 // unlock it for accounts that subscribed on the web.
 export const CAN_SUBSCRIBE_HERE = Platform.OS === 'web';
 
-// Keep in sync with private.has_study_access() in Supabase.
-const ACTIVE_STATUSES = ['active', 'trialing'];
+// Keep in sync with private.has_study_access() in Supabase. 'comped' is complimentary
+// access, granted by hand without a Stripe subscription.
+const ACTIVE_STATUSES = ['active', 'trialing', 'comped'];
 
 export type Subscription = {
   status: string;
