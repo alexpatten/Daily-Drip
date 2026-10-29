@@ -146,7 +146,7 @@ max_catalogs = 2
 
 # Store vector embeddings in S3 for large and durable datasets
 [storage.vector]
-enabled = true
+enabled = false
 max_buckets = 10
 max_indexes = 5
 
@@ -162,11 +162,12 @@ site_url = "https://alexpatten.com/daily-drip/auth-callback/"
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
 # Email links redirect back into the app: the dailydrip:// scheme for builds, the hosted web app at
-# dailydrip.alexpatten.com, Expo Go on the local network and the web dev server for development.
+# thedailydrip.app, Expo Go on the local network and the web dev server for development.
 # Anything else falls back to site_url, a page on alexpatten.com that forwards the link into the app.
 additional_redirect_urls = [
   "dailydrip://**",
-  "https://dailydrip.alexpatten.com/**",
+  "https://thedailydrip.app/**",
+  "https://www.thedailydrip.app/**",
   "https://alexpatten.com/daily-drip/**",
   "exp://127.0.0.1:8081/**",
   "exp://192.168.*.*:8081/**",
@@ -404,6 +405,14 @@ deno_version = 2
 
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
+
+# Study-session billing. Both check their own callers: billing asks Supabase Auth who the
+# reader is, and Stripe signs its webhook calls.
+[functions.billing]
+verify_jwt = false
+
+[functions.stripe-webhook]
+verify_jwt = false
 
 [analytics]
 enabled = true

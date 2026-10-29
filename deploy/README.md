@@ -1,9 +1,9 @@
-# Hosting the web app at dailydrip.alexpatten.com
+# Hosting the web app at thedailydrip.app
 
 The web app is a static export (`npx expo export --platform web`) served from ap-server-01
 the same way as the other sites in `~/apps/websites`:
 
-- **DNS**: a Route 53 A record for `dailydrip.alexpatten.com`.
+- **DNS**: a Route 53 A record for `thedailydrip.app`.
 - **Nginx Proxy Manager** handles HTTPS (Let's Encrypt) and forwards to `http://dailydrip:80`.
 - **`dailydrip` container**: `nginx:alpine` in `~/apps/websites/docker-compose.yml` on the
   `proxy` network. It mounts `./dailydrip/source/dist` and `./dailydrip/nginx.conf`.
@@ -28,7 +28,7 @@ run `docker restart dailydrip` after changing `nginx.conf`).
 
 ## Supabase redirect
 
-`supabase/config.toml` allows `https://dailydrip.alexpatten.com/**` as an auth redirect, so
+`supabase/config.toml` allows `https://thedailydrip.app/**` as an auth redirect, so
 verification and password reset emails sent from the web app come back to it. Push it once:
 
 ```bash

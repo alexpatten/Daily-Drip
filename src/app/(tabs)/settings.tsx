@@ -1,5 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { ExamSwitch } from '@/components/ExamSwitch';
 import { Screen } from '@/components/Screen';
@@ -12,16 +11,6 @@ export default function SettingsScreen() {
 
   return (
     <Screen>
-      <Pressable
-        onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
-        accessibilityRole="button"
-        accessibilityLabel="Back to today"
-        hitSlop={8}
-        style={({ pressed }) => [styles.back, pressed && styles.pressed]}
-      >
-        <Text style={styles.backText}>←  Today</Text>
-      </Pressable>
-
       <Text style={styles.title}>Settings</Text>
 
       <View style={styles.card}>
@@ -35,13 +24,6 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  back: {
-    alignSelf: 'flex-start',
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  backText: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.mocha },
   title: { fontFamily: fonts.display, fontSize: 32, color: colors.espresso },
   card: {
     backgroundColor: colors.cream,
@@ -52,5 +34,4 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontFamily: fonts.display, fontSize: 19, color: colors.espresso },
   hint: { fontFamily: fonts.body, fontSize: 14, lineHeight: 20, color: colors.mocha },
-  pressed: { transform: [{ scale: 0.96 }], opacity: 0.85 },
 });

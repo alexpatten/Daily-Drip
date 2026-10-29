@@ -31,6 +31,31 @@ npx supabase config push
 
 Supabase's built-in email service only sends a few emails an hour, and only to your project team's addresses. Before real users sign up, set up custom SMTP (`[auth.email.smtp]` in `config.toml`, or Authentication → Emails in the dashboard).
 
+## Study sessions (Daily Drip Plus)
+
+Subscribers get a **Study session**: 25 questions a day from their exam's whole bank. Each reader gets their own shuffle, the same all day and new at midnight Eastern, so it can include today's question or ones already answered, and every question starts unanswered. Study answers are kept on the device apart from daily progress, so they don't change the daily question, streaks or awards.
+
+- **`study_session(exam)`** returns the day's questions and raises an error for anyone without an active subscription, so the paywall holds even if the app is bypassed.
+- **`subscriptions`** holds one row per account (Stripe customer, status, period end). Only the edge functions write it; readers can see their own row. `active` and `trialing` unlock study sessions.
+- **Billing is Stripe**, sold on the web only: the App Store and Google Play require their own in-app purchases for subscriptions, so the native apps unlock study sessions for accounts that subscribed on the web, and don't offer a way to buy.
+  - `supabase/functions/billing`: the app calls it for the price, a Checkout page, or the billing portal (change card, cancel).
+  - `supabase/functions/stripe-webhook`: Stripe calls it on checkout and subscription changes, and it copies the subscription into `subscriptions`.
+
+Setup:
+
+1. In Stripe, create a product (Daily Drip Plus) with a recurring price, and turn on the [customer portal](https://dashboard.stripe.com/settings/billing/portal).
+2. Add a webhook endpoint at `https://jluewvjtvxubevkkszxf.supabase.co/functions/v1/stripe-webhook` for `checkout.session.completed` and `customer.subscription.created`, `.updated`, `.deleted`, `.paused` and `.resumed`.
+3. Set the secrets and deploy:
+
+```bash
+npx supabase secrets set STRIPE_SECRET_KEY=sk_... STRIPE_PRICE_ID=price_... STRIPE_WEBHOOK_SECRET=whsec_... \
+  ALLOWED_RETURN_ORIGINS=https://thedailydrip.app,https://www.thedailydrip.app,http://localhost:8081
+npx supabase functions deploy billing
+npx supabase functions deploy stripe-webhook
+```
+
+`ALLOWED_RETURN_ORIGINS` lists where Checkout and the portal may send readers back to. Use test-mode keys (and card `4242 4242 4242 4242`) until you're ready to take payments.
+
 ## Changing the backend
 
 Supabase settings live in `supabase/` (project `jluewvjtvxubevkkszxf`). To change the schema or the questions, add a migration and push it:
@@ -48,14 +73,15 @@ npx expo start        # then press i (iOS), a (Android), or w (web)
 
 `.env` holds the Supabase URL and publishable key, which are safe to ship in the app.
 
-The web build is hosted at https://dailydrip.alexpatten.com. Pushing to `main` redeploys it on ap-server-01 within a minute or two; see [`deploy/README.md`](deploy/README.md).
+The web build is hosted at https://thedailydrip.app. Pushing to `main` redeploys it on ap-server-01 within a minute or two; see [`deploy/README.md`](deploy/README.md).
 
 ## Project layout
 
 ```
-src/app/            screens (Expo Router): index = today, history = past brews, awards, settings,
-                    sign-in, sign-up, forgot-password, reset-password, auth-callback
+src/app/(tabs)/     the main screens, with the menu (top bar on wide web, icons along the bottom
+                    elsewhere): index = today, history = past brews, study = study session, awards, settings
+src/app/            sign-in, sign-up, forgot-password, reset-password, auth-callback
 src/components/     QuestionCard, ChoiceButton, LatteHearts and CoffeeBadge art, Screen wrapper
-src/lib/            Supabase client, auth, question queries, local progress, streaks + awards
-supabase/           migrations, email templates, config
+src/lib/            Supabase client, auth, question queries, local progress, streaks + awards, billing
+supabase/           migrations, edge functions (billing, stripe-webhook), email templates, config
 ```

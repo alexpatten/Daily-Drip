@@ -1,21 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { router } from 'expo-router';
 
 import { useCelebrations } from '@/components/Celebration';
 import { CoffeeBadge } from '@/components/CoffeeBadge';
 import { Screen } from '@/components/Screen';
-import { AWARD_GROUPS, awardShareMessage, awardStatuses, type AwardStatus } from '@/lib/awards';
+import { ShareSheet, type ShareCard } from '@/components/ShareSheet';
+import { AWARD_GROUPS, awardStatuses, type AwardStatus } from '@/lib/awards';
 import { formatShort } from '@/lib/dates';
 import { useProgress } from '@/lib/progress';
 import { cachedQuestionCounts, getQuestionCounts } from '@/lib/questions';
-import { shareWithLink } from '@/lib/share';
 import { colors, fonts, radius, shadow } from '@/theme';
 
 export default function AwardsScreen() {
   const { progress, syncAwards } = useProgress();
   const [counts, setCounts] = useState(cachedQuestionCounts);
   const { celebration, replay } = useCelebrations();
+  const [shareCard, setShareCard] = useState<ShareCard | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -34,16 +34,6 @@ export default function AwardsScreen() {
   return (
     <View style={styles.root}>
       <Screen>
-        <Pressable
-          onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
-          accessibilityRole="button"
-          accessibilityLabel="Back to today"
-          hitSlop={8}
-          style={({ pressed }) => [styles.back, pressed && styles.pressed]}
-        >
-          <Text style={styles.backText}>←  Today</Text>
-        </Pressable>
-
         <View>
           <Text style={styles.title}>Awards</Text>
           <Text style={styles.subtitle}>
@@ -61,40 +51,33 @@ export default function AwardsScreen() {
             {statuses
               .filter((s) => s.award.group === group)
               .map((s) => (
-                <AwardRow key={s.award.id} status={s} onReplay={() => replay(s.award)} />
+                <AwardRow
+                  key={s.award.id}
+                  status={s}
+                  onReplay={() => replay(s.award)}
+                  onShare={() => setShareCard({ kind: 'award', award: s.award })}
+                />
               ))}
           </View>
         ))}
       </Screen>
       {celebration}
+      <ShareSheet card={shareCard} onClose={() => setShareCard(null)} />
     </View>
   );
 }
 
-function AwardRow({ status, onReplay }: { status: AwardStatus; onReplay: () => void }) {
+type RowProps = { status: AwardStatus; onReplay: () => void; onShare: () => void };
+
+function AwardRow({ status, onReplay, onShare }: RowProps) {
   const { award, earnedOn, progress } = status;
   const earned = !!earnedOn;
   const value = progress ? Math.min(progress.value, progress.goal) : 0;
-  // A word about the last share, shown in place of the detail for a moment.
-  const [note, setNote] = useState<string | null>(null);
-  const standing = earned
+  const detail = earned
     ? `Earned ${formatShort(earnedOn)}`
     : progress
       ? `${value} of ${progress.goal}`
       : null;
-  const detail = note ?? standing;
-
-  useEffect(() => {
-    if (!note) return;
-    const timer = setTimeout(() => setNote(null), 2500);
-    return () => clearTimeout(timer);
-  }, [note]);
-
-  async function share() {
-    const result = await shareWithLink(awardShareMessage(award));
-    if (result === 'copied') setNote('Copied to share ♡');
-    else if (result === 'failed') setNote("Couldn't open sharing");
-  }
 
   return (
     <View style={[styles.row, !earned && styles.rowLocked]}>
@@ -122,7 +105,7 @@ function AwardRow({ status, onReplay }: { status: AwardStatus; onReplay: () => v
       </Pressable>
       {earned && (
         <Pressable
-          onPress={share}
+          onPress={onShare}
           accessibilityRole="button"
           accessibilityLabel={`Share ${award.name}`}
           hitSlop={6}
@@ -137,13 +120,6 @@ function AwardRow({ status, onReplay }: { status: AwardStatus; onReplay: () => v
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  back: {
-    alignSelf: 'flex-start',
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  backText: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.mocha },
   title: { fontFamily: fonts.display, fontSize: 32, color: colors.espresso },
   subtitle: { fontFamily: fonts.bodySemi, fontSize: 14, color: colors.mocha, marginTop: 2 },
   section: { gap: 10 },

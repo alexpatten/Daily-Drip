@@ -16,12 +16,14 @@ import { motionAllowed, useCelebrations } from '@/components/Celebration';
 import { LatteHearts } from '@/components/LatteHearts';
 import { QuestionCard } from '@/components/QuestionCard';
 import { Screen } from '@/components/Screen';
+import { ShareSheet, type ShareCard } from '@/components/ShareSheet';
 import { displayName, signOut, useAuth } from '@/lib/auth';
 import { easternDateString, formatPretty } from '@/lib/dates';
 import { examFor, type ExamSlug } from '@/lib/exams';
 import { answerFor, currentStreak, useProgress, type AnswerRecord } from '@/lib/progress';
 import { getTodaysQuestion, slotKey, type DailyQuestion } from '@/lib/questions';
 import { useSettings } from '@/lib/settings';
+import { shareWithLink } from '@/lib/share';
 import { colors, fonts, radius, shadow } from '@/theme';
 
 // `key` is the exam the question was fetched for.
@@ -38,8 +40,13 @@ async function fetchBrew(exam: ExamSlug): Promise<Brew> {
 // How often to check whether it's past midnight Eastern while the app stays open.
 const TURNOVER_CHECK_MS = 60 * 1000;
 
-// The day count in the header, which bounces when it goes up.
-function StreakBadge({ streak }: { streak: number }) {
+// Shares the question (never the answer), inviting friends to try it.
+function questionShareMessage(q: DailyQuestion): string {
+  return `Today's ${examFor(q.exam).shortName} question on Daily Drip ☕\n\n${q.question}\n\nCan you get it?`;
+}
+
+// The day count in the header, which bounces when it goes up. Tap to share it.
+function StreakBadge({ streak, onShare }: { streak: number; onShare: () => void }) {
   const [scale] = useState(() => new Animated.Value(1));
   const shown = useRef(streak);
 
@@ -64,14 +71,22 @@ function StreakBadge({ streak }: { streak: number }) {
     };
   }, [streak, scale]);
 
+  // Nothing to share before the first day.
+  const canShare = streak > 0;
   return (
-    <Animated.View
-      style={[styles.streak, { transform: [{ scale }] }]}
+    <Pressable
+      onPress={onShare}
+      disabled={!canShare}
+      accessibilityRole={canShare ? 'button' : 'text'}
       accessibilityLabel={`${streak} day streak`}
+      accessibilityHint={canShare ? 'Shares your streak' : undefined}
+      style={({ pressed }) => pressed && styles.pressed}
     >
-      <Text style={styles.streakNumber}>{streak}</Text>
-      <Text style={styles.streakLabel}>day streak</Text>
-    </Animated.View>
+      <Animated.View style={[styles.streak, { transform: [{ scale }] }]}>
+        <Text style={styles.streakNumber}>{streak}</Text>
+        <Text style={styles.streakLabel}>day streak</Text>
+      </Animated.View>
+    </Pressable>
   );
 }
 
@@ -88,6 +103,21 @@ export default function TodayScreen() {
   const { progress, save, reload, syncAwards } = useProgress();
   const [refreshing, setRefreshing] = useState(false);
   const { celebration, celebrate } = useCelebrations();
+  const [shareCard, setShareCard] = useState<ShareCard | null>(null);
+  // A word about the last question share, shown for a moment.
+  const [shareNote, setShareNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!shareNote) return;
+    const timer = setTimeout(() => setShareNote(null), 2500);
+    return () => clearTimeout(timer);
+  }, [shareNote]);
+
+  async function shareQuestion(q: DailyQuestion) {
+    const result = await shareWithLink(questionShareMessage(q));
+    if (result === 'copied') setShareNote('Copied to share ♡');
+    else if (result === 'failed') setShareNote("Couldn't open sharing");
+  }
 
   // Answers from before awards existed still count.
   useEffect(() => {
@@ -166,7 +196,9 @@ export default function TodayScreen() {
             <Text style={styles.brand}>Daily Drip</Text>
             {today && <Text style={styles.date}>{formatPretty(today)}</Text>}
           </View>
-          {streak !== null && <StreakBadge streak={streak} />}
+          {streak !== null && (
+            <StreakBadge streak={streak} onShare={() => setShareCard({ kind: 'streak', days: streak })} />
+          )}
         </View>
 
         <View style={styles.hero}>
@@ -209,35 +241,19 @@ export default function TodayScreen() {
           </View>
         )}
 
-        {answer && <Text style={styles.comeBack}>Come back tomorrow for a fresh cup ♡</Text>}
-
-        <View style={styles.links}>
-          <Link href={session ? '/history' : '/sign-in'} asChild>
+        {question && answer && (
+          <View style={styles.after}>
             <Pressable
-              accessibilityRole="link"
+              onPress={() => shareQuestion(question)}
+              accessibilityRole="button"
               style={({ pressed }) => [styles.pillLink, pressed && styles.pressed]}
             >
-              <Text style={styles.pillText}>Past brews  →</Text>
+              <Text style={styles.pillText}>Share today&apos;s question</Text>
             </Pressable>
-          </Link>
-          <Link href="/awards" asChild>
-            <Pressable
-              accessibilityRole="link"
-              style={({ pressed }) => [styles.pillLink, pressed && styles.pressed]}
-            >
-              <Text style={styles.pillText}>Awards  →</Text>
-            </Pressable>
-          </Link>
-          <Link href="/settings" asChild>
-            <Pressable
-              accessibilityRole="link"
-              accessibilityLabel={`Settings, ${shortName}`}
-              style={({ pressed }) => [styles.pillLink, pressed && styles.pressed]}
-            >
-              <Text style={styles.pillText}>{shortName}  ·  Settings</Text>
-            </Pressable>
-          </Link>
-        </View>
+            {shareNote && <Text style={styles.shareNote}>{shareNote}</Text>}
+            <Text style={styles.comeBack}>Come back tomorrow for a fresh cup ♡</Text>
+          </View>
+        )}
 
         {session ? (
           <View style={styles.account}>
@@ -269,6 +285,7 @@ export default function TodayScreen() {
         )}
       </Screen>
       {celebration}
+      <ShareSheet card={shareCard} onClose={() => setShareCard(null)} />
     </View>
   );
 }
@@ -315,8 +332,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   retryText: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.cream },
+  after: { alignItems: 'center', gap: 10 },
+  shareNote: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.caramel, textAlign: 'center' },
   comeBack: { fontFamily: fonts.displayItalic, fontSize: 16, color: colors.mocha, textAlign: 'center' },
-  links: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10 },
   pillLink: {
     minHeight: 48,
     paddingHorizontal: 22,

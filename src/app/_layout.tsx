@@ -58,12 +58,9 @@ function RootNavigator({ fontsReady }: { fontsReady: boolean }) {
         contentStyle: { backgroundColor: colors.blush },
       }}
     >
-      {/* Today's questions, awards and settings are open to everyone; accounts unlock history. */}
-      <Stack.Screen name="index" />
-      <Stack.Screen name="awards" />
-      <Stack.Screen name="settings" />
+      {/* The main screens, with the menu. */}
+      <Stack.Screen name="(tabs)" />
       <Stack.Protected guard={signedIn}>
-        <Stack.Screen name="history" />
         <Stack.Screen name="reset-password" />
       </Stack.Protected>
       {/* Signing in from here continues to history, which is what it's for. */}

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { router } from 'expo-router';
 
 import { Button } from '@/components/Button';
 import { useCelebrations } from '@/components/Celebration';
@@ -90,16 +89,6 @@ export default function HistoryScreen() {
   return (
     <View style={styles.root}>
       <Screen refreshing={refreshing} onRefresh={onRefresh}>
-        <Pressable
-          onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
-          accessibilityRole="button"
-          accessibilityLabel="Back to today"
-          hitSlop={8}
-          style={({ pressed }) => [styles.back, pressed && styles.pressed]}
-        >
-          <Text style={styles.backText}>←  Today</Text>
-        </Pressable>
-
         <View>
           <Text style={styles.title}>Past brews</Text>
           <Text style={styles.subtitle}>
@@ -165,13 +154,6 @@ export default function HistoryScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  back: {
-    alignSelf: 'flex-start',
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  backText: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.mocha },
   title: { fontFamily: fonts.display, fontSize: 32, color: colors.espresso },
   subtitle: { fontFamily: fonts.bodySemi, fontSize: 14, color: colors.mocha, marginTop: 2 },
   empty: { fontFamily: fonts.displayItalic, fontSize: 16, color: colors.mocha, textAlign: 'center' },

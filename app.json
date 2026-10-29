@@ -40,7 +40,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#F6DCD6"
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "scheme": "dailydrip",
     "experiments": {

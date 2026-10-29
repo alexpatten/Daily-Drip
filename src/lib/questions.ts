@@ -21,7 +21,7 @@ export type DailyQuestion = {
   category: { name: string; test_name: string } | null;
 };
 
-const SELECT =
+export const QUESTION_SELECT =
   'id, exam, question_date, position, question, choice_a, choice_b, choice_c, choice_d, correct_answer, explanation, ' +
   'category:praxis_categories(name, test_name)';
 
@@ -41,7 +41,7 @@ export function slotKey(q: DailyQuestion): string {
 export async function getTodaysQuestion(exam: ExamSlug): Promise<DailyQuestion | null> {
   const { data, error } = await supabase
     .rpc('todays_questions', { p_exam: exam, p_count: 1 })
-    .select(SELECT)
+    .select(QUESTION_SELECT)
     .returns<DailyQuestion[]>();
   if (error) throw error;
   return data[0] ?? null;
@@ -55,7 +55,7 @@ export const PAST_PAGE_DAYS = 30;
 export async function getPastQuestions(exam: ExamSlug, beforeDate: string | null): Promise<DailyQuestion[]> {
   const { data, error } = await supabase
     .rpc('past_questions', { p_exam: exam, p_count: 1, p_before: beforeDate, p_days: PAST_PAGE_DAYS })
-    .select(SELECT)
+    .select(QUESTION_SELECT)
     .returns<DailyQuestion[]>();
   if (error) throw error;
   return data;
